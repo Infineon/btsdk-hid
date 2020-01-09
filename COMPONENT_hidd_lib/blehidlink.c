@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Cypress Semiconductor Corporation or a subsidiary of
+ * Copyright 2020, Cypress Semiconductor Corporation or a subsidiary of
  * Cypress Semiconductor Corporation. All Rights Reserved.
  *
  * This software, including source code, documentation and related
@@ -39,26 +39,25 @@
 * Functions:
 *
 *******************************************************************************/
-#ifndef BT_HIDD_ONLY
+#ifdef BLE_SUPPORT
 #include "spar_utils.h"
 #include "blehidlink.h"
-#include "blehostlist.h"
 #include "wiced_hal_mia.h"
 #include "wiced_hal_gpio.h"
 #include "wiced_bt_dev.h"
-#include "wiced_bt_stack.h"
 #include "wiced_bt_trace.h"
 #include "wiced_bt_event.h"
 #include "wiced_bt_l2c.h"
+#include "wiced_bt_stack.h"
+#include "wiced_bt_ota_firmware_upgrade.h"
 #include "wiced_hal_batmon.h"
 #include "wiced_hal_nvram.h"
 #include "wiced_memory.h"
-#include "blehidhci.h"
+#include "hidd_lib.h"
 
-tBleHidLink ble_hidd_link = {{15, 15, 20, 300}, 1, 0, };
+tBleHidLink ble_hidd_link = {{15, 15, 20, 300}, 0, 0, };
 
 uint16_t blehostlist_flags = 0;
-wiced_bt_device_link_keys_t  blehostlist_link_keys = {0, };
 wiced_bool_t blehidlink_connection_param_updated = WICED_FALSE;
 uint8_t wake_from_SDS_timer_timeout = 0;
 wiced_bt_ble_advert_mode_t app_adv_mode = BTM_BLE_ADVERT_OFF;
@@ -68,13 +67,7 @@ uint8_t factory_mode = 0;
 extern uint8_t force_sleep_in_HID_mode;
 #endif
 
-const wiced_bt_cfg_settings_t * wiced_bt_hid_cfg_settings_ptr = NULL;
-
-void blehidlink_init();
-void blehidlink_determineNextState(void);
-void blehidlink_connParamUpdate_timerCb( uint32_t arg);
 void blehidlink_reconnect_timerCb( uint32_t arg);
-void blehidlink_allowsleeptimerCb( uint32_t arg);
 void blehidlink_connectionIdle_timerCb(INT32 args, UINT32 overTimeInUs);
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
 void blehidlink_stateswitchtimerCb( uint32_t arg);
@@ -85,65 +78,19 @@ void blehidlink_enterConnected(void);
 void blehidlink_enterDisconnected(void);
 void blehidlink_enterReconnecting(void);
 void blehidlink_setState(uint8_t newState);
-uint32_t blehidlink_sleep_handler(wiced_sleep_poll_type_t type );
 
 #ifdef EASY_PAIR
 void blehidlink_easyPair(uint32_t arg);
 void blehidlink_easyPair_timerCb( uint32_t arg);
 #endif
 
-#ifdef DUAL_MODE_HIDD
-extern wiced_bt_transport_t active_transport;
-#endif
-
-//Local identity key ID
-#define  VS_LOCAL_IDENTITY_ID WICED_NVRAM_VSID_START
-
-wiced_sleep_config_t    blehidlink_sleep_config = {
-    WICED_SLEEP_MODE_NO_TRANSPORT,  //sleep_mode
-    0,                              //host_wake_mode
-    0,                              //device_wake_mode
-    WICED_SLEEP_WAKE_SOURCE_GPIO | WICED_SLEEP_WAKE_SOURCE_KEYSCAN | WICED_SLEEP_WAKE_SOURCE_QUAD,  //device_wake_source
-    255,                            //must set device_wake_gpio_num to 255 for WICED_SLEEP_MODE_NO_TRANSPORT
-    blehidlink_sleep_handler        //sleep_permit_handler
-};
-wiced_sleep_allow_check_callback blehidlink_registered_app_sleep_handler = NULL;
-
 PLACE_DATA_IN_RETENTION_RAM blehid_aon_save_content_t   blehid_aon_data;
-
-/////////////////////////////////////////////////////////////////////////////////////////////
-/// Abstract link layer initialize
-/////////////////////////////////////////////////////////////////////////////////////////////
-void wiced_ble_hidd_link_init()
-{
-    //Setup Battery Service
-    wiced_hal_batmon_init();
-
-    blehidlink_init();
-
-    //configure sleep
-    wiced_sleep_configure( &blehidlink_sleep_config );
-
-    blehidlink_determineNextState();
-
-}
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// ble hid link init
 /////////////////////////////////////////////////////////////////////////////////////////////
 void blehidlink_init()
 {
-    //read HID host from NVRAM
-    wiced_ble_hidd_host_info_init();
-
-#ifdef DUAL_MODE_HIDD
-    if(wiced_ble_hidd_host_info_is_bonded())
-    {
-        WICED_BT_TRACE("BT_TRANSPORT_LE!\n");
-        active_transport = BT_TRANSPORT_LE;
-    }
-#endif
-
     ///connection idle timer that can be supported in uBCS mode
     osapi_createTimer(&ble_hidd_link.conn_idle_timer, blehidlink_connectionIdle_timerCb, 0);
 
@@ -154,9 +101,6 @@ void blehidlink_init()
     //timer for easy pair
     wiced_init_timer( &ble_hidd_link.easyPair_timer, blehidlink_easyPair_timerCb, 0, WICED_MILLI_SECONDS_TIMER );
 #endif
-
-    //timer to allow shut down sleep (SDS)
-    wiced_init_timer( &ble_hidd_link.allowSDS_timer, blehidlink_allowsleeptimerCb, 0, WICED_MILLI_SECONDS_TIMER );
 
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
     ble_hidd_link.state_switch_timeout_in_ms = 1000; // 1 seconds
@@ -186,9 +130,9 @@ void blehidlink_determineNextState_on_cold_boot(void)
         return;
     }
 
-    if(wiced_ble_hidd_host_info_is_bonded())
+    if(hidd_host_isBonded())
     {
-        WICED_BT_TRACE("bonded info in NVRAM\n");
+        WICED_BT_TRACE("\nbonded info in NVRAM");
 
 #ifdef AUTO_RECONNECT
         if (ble_hidd_link.auto_reconnect && !wiced_hal_batmon_is_low_battery_shutdown())
@@ -199,7 +143,6 @@ void blehidlink_determineNextState_on_cold_boot(void)
         blehidlink_enterDisconnected();
 
 #ifdef START_ADV_WHEN_POWERUP_NO_CONNECTED
-        wiced_ble_hidd_host_info_add_to_resolving_list();
         blehidlink_enterReconnecting();
 #endif
     }
@@ -216,8 +159,6 @@ void blehidlink_determineNextState_on_cold_boot(void)
 #endif
     }
 }
-
-extern BOOL8 btsnd_hcic_ble_set_adv_enable (UINT8 adv_enable);
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// determine next action when wake from SDS
@@ -237,24 +178,24 @@ void blehidlink_determineNextState_on_wake_from_SDS(void)
             // if time passed more than 60 seconds (adv timer timeout value)
             if (time_passed_in_ms >= 60000)
             {
-                WICED_BT_TRACE("discoverable timer timeout!!\n");
+                WICED_BT_TRACE("\ndiscoverable timer timeout!!");
                 wake_from_SDS_timer_timeout = BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER | 1;
             }
         }
         //is it connection idle timer
         else if (ble_hidd_link.osapi_app_timer_running & BLEHIDLINK_CONNECTION_IDLE_TIMER)
         {
-            WICED_BT_TRACE("ble_hidd_link.conn_idle_timeout=%d, time_passed_in_ms=%d\n", ble_hidd_link.conn_idle_timeout, (uint32_t)time_passed_in_ms);
+            WICED_BT_TRACE("\nble_hidd_link.conn_idle_timeout=%d, time_passed_in_ms=%d", ble_hidd_link.conn_idle_timeout, (uint32_t)time_passed_in_ms);
             // if time passed more than connection idle timeout value
             if ((time_passed_in_ms >= ble_hidd_link.conn_idle_timeout*1000) || ((ble_hidd_link.conn_idle_timeout - time_passed_in_ms/1000) <= 1))
             {
-                WICED_BT_TRACE("connection idle timer timeout!!\n");
+                WICED_BT_TRACE("\nconnection idle timer timeout!!");
                 wake_from_SDS_timer_timeout = BLEHIDLINK_CONNECTION_IDLE_TIMER | 1;
             }
             else
             {
                 uint64_t remaining_time_in_ms = ble_hidd_link.conn_idle_timeout*1000 - time_passed_in_ms;
-                //WICED_BT_TRACE("remaining_time_in_ms = %d\n", (uint32_t)remaining_time_in_ms);
+                //WICED_BT_TRACE("\nremaining_time_in_ms = %d", (uint32_t)remaining_time_in_ms);
                 //restart connection idle timer w/remaining time
                 osapi_activateTimer( &ble_hidd_link.conn_idle_timer, remaining_time_in_ms*1000); //timout in micro seconds.
             }
@@ -268,30 +209,28 @@ void blehidlink_determineNextState_on_wake_from_SDS(void)
         (BLEHIDLINK_ADVERTISING_IN_uBCS_UNDIRECTED == ble_hidd_link.resumeState))
     {
         //stop advertising.
-        //NOTE: wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF) can't be used to stop advertising here. Due to wiced stack didn't save adv status before/exit SDS.
-        btsnd_hcic_ble_set_adv_enable (BTM_BLE_ADVERT_OFF);
+        //NOTE: wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF) can't be used to stop advertising here.
+        // Due to wiced stack didn't save adv status before/exit SDS.
+        //btsnd_hcic_ble_set_adv_enable (BTM_BLE_ADVERT_OFF);
 
         //check if wake up due to receiving LE connect request
         if (wiced_blehidd_is_wakeup_from_conn_req())
         {
-            WICED_BT_TRACE("wake from CONNECT req\n");
+            WICED_BT_TRACE("\nwake from CONNECT req");
             if (!wiced_hal_batmon_is_low_battery_shutdown())
             {
-                if (wiced_ble_hidd_host_info_is_bonded() && (BLEHIDLINK_ADVERTISING_IN_uBCS_DIRECTED == ble_hidd_link.resumeState))
+                if (hidd_host_isBonded() && (BLEHIDLINK_ADVERTISING_IN_uBCS_DIRECTED == ble_hidd_link.resumeState))
                 {
-                    wiced_ble_hidd_host_info_add_to_resolving_list();
                     blehidlink_enterReconnecting();
                 }
                 else
                 {
  #ifdef WHITE_LIST_FOR_ADVERTISING
                     //if advertising white list is enabled before enter SDS
-                    if (wiced_ble_hidd_host_info_is_bonded() && ble_hidd_link.adv_white_list_enabled)
+                    if (hidd_host_isBonded() && ble_hidd_link.adv_white_list_enabled)
                     {
-                        uint8_t *bonded_bdadr = (uint8_t *)wiced_ble_hidd_host_info_get_bdaddr();
-
                         //add to white list
-                        wiced_bt_ble_update_advertising_white_list(WICED_TRUE, bonded_bdadr);
+                        wiced_bt_ble_update_advertising_white_list(WICED_TRUE, wiced_hidd_host_addr());
 
                         //update advertising filer policy to use white list to filter scan and connect request
                         wiced_btm_ble_update_advertisement_filter_policy(ble_hidd_link.adv_white_list_enabled);
@@ -303,7 +242,7 @@ void blehidlink_determineNextState_on_wake_from_SDS(void)
         }
         else
         {
-            WICED_BT_TRACE("set Disconnected state\n");
+            WICED_BT_TRACE("\nset Disconnected state");
             blehidlink_setState(BLEHIDLINK_DISCONNECTED);
         }
     }
@@ -328,30 +267,19 @@ void blehidlink_determineNextState_on_wake_from_SDS(void)
         {
  #ifdef ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED
             //if  it is bonded, start low duty cycle directed advertising again.
-            if (wiced_ble_hidd_host_info_is_bonded() && (BLEHIDLINK_ADVERTISING_IN_uBCS_DIRECTED == ble_hidd_link.resumeState))
+            if (hidd_host_isBonded() && (BLEHIDLINK_ADVERTISING_IN_uBCS_DIRECTED == ble_hidd_link.resumeState))
             {
-                uint8_t *bdAddr;
-                uint8_t bdAddrType;
+                //NOTE!!! wiced_bt_start_advertisement could modify the value of bdAddr, so MUST use a copy.
+                uint8_t tmp_bdAddr[BD_ADDR_LEN];
+                memcpy(tmp_bdAddr, wiced_hidd_host_addr(), BD_ADDR_LEN);
 
-
-                if (wiced_ble_hidd_host_info_get_first_host(&bdAddr,&bdAddrType))
+                // start high duty cycle directed advertising.
+                if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_LOW, wiced_hidd_host_addr_type(), tmp_bdAddr))
                 {
-                    //NOTE!!! wiced_bt_start_advertisement could modify the value of bdAddr, so MUST use a copy.
-                    uint8_t tmp_bdAddr[BD_ADDR_LEN];
-                    memcpy(tmp_bdAddr, bdAddr, BD_ADDR_LEN);
-
-                    // start high duty cycle directed advertising.
-                    if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_LOW, bdAddrType, tmp_bdAddr))
-                    {
-                        WICED_BT_TRACE("Failed to start low duty cycle directed advertising!!!\n");
-                    }
-
-                    blehidlink_setState(BLEHIDLINK_ADVERTISING_IN_uBCS_DIRECTED);
+                    WICED_BT_TRACE("\nFailed to start low duty cycle directed advertising!!!");
                 }
-                else
-                {
-                    WICED_BT_TRACE("Fatal!!! we shouldn't get here!!\n");
-                }
+
+                blehidlink_setState(BLEHIDLINK_ADVERTISING_IN_uBCS_DIRECTED);
             }
             else
  #endif
@@ -375,18 +303,26 @@ void blehidlink_determineNextState_on_wake_from_SDS(void)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
+/// ble hidd link get current advertizing mode
+/////////////////////////////////////////////////////////////////////////////////////////////
+wiced_bt_ble_advert_mode_t wiced_ble_hidd_link_get_adv_mode(void)
+{
+    return app_adv_mode;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
 /// determine next action on cold boot or wake from SDS
 /////////////////////////////////////////////////////////////////////////////////////////////
 void blehidlink_determineNextState(void)
 {
     if(!wiced_hal_mia_is_reset_reason_por())
     {
-        WICED_BT_TRACE("wake from SDS\n");
+        WICED_BT_TRACE("\nwake from SDS");
         blehidlink_determineNextState_on_wake_from_SDS();
     }
     else
     {
-        WICED_BT_TRACE("cold boot\n");
+        WICED_BT_TRACE("\ncold boot");
         blehidlink_determineNextState_on_cold_boot();
     }
 
@@ -401,11 +337,11 @@ void wiced_ble_hidd_link_connected(void)
 {
     if (ble_hidd_link.conn_idle_timeout)
     {
-    // start the connection idle timer
-    osapi_activateTimer( &ble_hidd_link.conn_idle_timer, ble_hidd_link.conn_idle_timeout * 1000000UL); //timout in micro seconds.
-    ble_hidd_link.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
-    ble_hidd_link.osapi_app_timer_running |= BLEHIDLINK_CONNECTION_IDLE_TIMER;
-    ble_hidd_link.osapi_app_timer_running |= 1;
+        // start the connection idle timer
+        osapi_activateTimer( &ble_hidd_link.conn_idle_timer, ble_hidd_link.conn_idle_timeout * 1000000UL); //timout in micro seconds.
+        ble_hidd_link.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
+        ble_hidd_link.osapi_app_timer_running |= BLEHIDLINK_CONNECTION_IDLE_TIMER;
+        ble_hidd_link.osapi_app_timer_running |= 1;
     }
 
     blehidlink_enterConnected();
@@ -428,7 +364,7 @@ void wiced_ble_hidd_link_disconnected(void)
 #ifdef AUTO_RECONNECT
     //reconnect back if bonded with host and not in the process of lowbattery shut down
     //and disconnect is not due to virtual cable unplug
-    if(ble_hidd_link.auto_reconnect && wiced_ble_hidd_host_info_is_bonded() && !wiced_hal_batmon_is_low_battery_shutdown() && !ble_hidd_link.pendingStateTransiting)
+    if(ble_hidd_link.auto_reconnect && hidd_host_isBonded() && !wiced_hal_batmon_is_low_battery_shutdown() && !ble_hidd_link.pendingStateTransiting)
         wiced_start_timer(&ble_hidd_link.reconnect_timer,500); //auto reconnect in 500 ms
 #endif
     //clear link encrypted flag when disconnected
@@ -442,7 +378,7 @@ void wiced_ble_hidd_link_disconnected(void)
 /////////////////////////////////////////////////////////////////////////////////////////////
 void wiced_ble_hidd_link_adv_stop(void)
 {
-    WICED_BT_TRACE("wiced_ble_hidd_link_adv_stop\n");
+    WICED_BT_TRACE("\nwiced_ble_hidd_link_adv_stop");
 
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
     //stop discoverable timer
@@ -473,7 +409,7 @@ void wiced_ble_hidd_link_adv_stop(void)
 /////////////////////////////////////////////////////////////////////////////////////////////
 void wiced_ble_hidd_link_directed_adv_stop(void)
 {
-    WICED_BT_TRACE("blehidlink_DirectedAdvStop\n");
+    WICED_BT_TRACE("\nblehidlink_DirectedAdvStop");
 
 #if defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) && !defined(SUPPORT_EPDS)
     blehidlink_setState(BLEHIDLINK_ADVERTISING_IN_uBCS_DIRECTED);
@@ -487,7 +423,7 @@ void wiced_ble_hidd_link_directed_adv_stop(void)
 
     // start undirected connectable advertising.
     if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_UNDIRECTED_HIGH, 0, NULL))
-        WICED_BT_TRACE("Failed to undirected connectable advertising!!!\n");
+        WICED_BT_TRACE("\nFailed to undirected connectable advertising!!!");
 
  #ifdef ALLOW_SDS_IN_DISCOVERABLE
     osapi_activateTimer( &ble_hidd_link.discoverable_timer, 60000000UL); //60 seconds. timout in micro seconds.
@@ -498,72 +434,6 @@ void wiced_ble_hidd_link_directed_adv_stop(void)
     blehidlink_setState(BLEHIDLINK_ADVERTISING_IN_uBCS_UNDIRECTED);
  #endif
 #endif
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// register application sleep permit handler
-///
-/// \param cb - pointer to application callback function
-/////////////////////////////////////////////////////////////////////////////////
-void wiced_ble_hidd_link_register_sleep_permit_handler(wiced_sleep_allow_check_callback sleep_handler)
-{
-    blehidlink_registered_app_sleep_handler = sleep_handler;
-}
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// Sleep permit query to check if sleep (normal or SDS) is allowed and sleep time
-///
-/// \param type - sleep poll type
-///
-/// \return   sleep permission or sleep time, depending on input param
-////////////////////////////////////////////////////////////////////////////////////////////////////////////
-uint32_t blehidlink_sleep_handler(wiced_sleep_poll_type_t type )
-{
-    uint32_t ret = WICED_SLEEP_NOT_ALLOWED;
-
-    switch(type)
-    {
-        case WICED_SLEEP_POLL_TIME_TO_SLEEP:
-            ret = WICED_SLEEP_MAX_TIME_TO_SLEEP;
-
-            //query application for sleep time
-            if (blehidlink_registered_app_sleep_handler)
-                ret = blehidlink_registered_app_sleep_handler(type);
-
-            break;
-
-        case WICED_SLEEP_POLL_SLEEP_PERMISSION:
-            ret = WICED_SLEEP_ALLOWED_WITH_SHUTDOWN;
-
-            //query application for sleep permit first
-            if (blehidlink_registered_app_sleep_handler)
-                ret = blehidlink_registered_app_sleep_handler(type);
-
-            if (!ble_hidd_link.allowSDS)
-                ret = WICED_SLEEP_ALLOWED_WITHOUT_SHUTDOWN;
-
-            if (ble_hidd_link.second_conn_state == BLEHIDLINK_2ND_CONNECTION_PENDING)
-                ret = WICED_SLEEP_ALLOWED_WITHOUT_SHUTDOWN;
-
-            if (wiced_hidd_is_transport_detection_polling_on()
-#ifdef FATORY_TEST_SUPPORT
-                && !force_sleep_in_HID_mode
-#endif
-                )
-                ret = WICED_SLEEP_ALLOWED_WITHOUT_SHUTDOWN;
-
-            //save to AON before entering SDS
-            if (ret == WICED_SLEEP_ALLOWED_WITH_SHUTDOWN)
-            {
-                wiced_ble_hidd_link_aon_action_handler(BLEHIDLINK_SAVE_TO_AON);
-            }
-
-            break;
-
-    }
-
-    return ret;
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -592,19 +462,15 @@ wiced_bool_t  wiced_ble_hidd_link_is_discoverable(void)
 /////////////////////////////////////////////////////////////////////////////////
 void wiced_ble_hidd_link_connect(void)
 {
-    //add host to Resolving List after key press interrupt is handled to avoid delay
-    wiced_ble_hidd_host_info_add_to_resolving_list();
-
-    if(wiced_ble_hidd_host_info_is_bonded())
+    if(hidd_host_isBonded())
     {
-        WICED_BT_TRACE("Bonded: SubState:%d\n",ble_hidd_link.subState);
         switch(ble_hidd_link.subState)
         {
             case BLEHIDLINK_DISCONNECTED:
                 blehidlink_enterReconnecting();
                 break;
             default:
-                 //WICED_BT_TRACE("wiced_ble_hidd_link_connect(bonded):%d\n",ble_hidd_link.subState);
+                 //WICED_BT_TRACE("\nwiced_ble_hidd_link_connect(bonded):%d",ble_hidd_link.subState);
                 break;
         }
     }
@@ -616,7 +482,7 @@ void wiced_ble_hidd_link_connect(void)
                 blehidlink_enterDiscoverable(WICED_TRUE);
                 break;
             default:
-                //WICED_BT_TRACE("wiced_ble_hidd_link_connect(not bonded):%d\n",ble_hidd_link.subState);
+                //WICED_BT_TRACE("\nwiced_ble_hidd_link_connect(not bonded):%d",ble_hidd_link.subState);
                 break;
         }
     }
@@ -655,7 +521,7 @@ void wiced_ble_hidd_link_add_state_observer(wiced_ble_hidd_state_change_callback
 /////////////////////////////////////////////////////////////////////////////////
 void blehidlink_enterDisconnected(void)
 {
-    WICED_BT_TRACE("enterDisconnected\n");
+//    WICED_BT_TRACE("\nLE enterDisconnected");
 
 #ifdef WHITE_LIST_FOR_ADVERTISING
     //clear white list
@@ -695,11 +561,11 @@ void blehidlink_enterDiscoverable(uint32_t SDS_allow)
         return;
     }
 
-    WICED_BT_TRACE("enterDiscoverable\n");
+    WICED_BT_TRACE("\nenterDiscoverable");
 
     // start undirected connectable advertising.
     if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_UNDIRECTED_LOW, 0, NULL))
-        WICED_BT_TRACE("Failed to start undirected connectable advertising!!!\n");
+        WICED_BT_TRACE("\nFailed to start undirected connectable advertising!!!");
 
     blehidlink_setState(BLEHIDLINK_DISCOVERABLE);
 
@@ -730,7 +596,7 @@ void blehidlink_enterDiscoverable(uint32_t SDS_allow)
 /////////////////////////////////////////////////////////////////////////////////
 void blehidlink_allowDiscoverable(void)
 {
-    WICED_BT_TRACE("allowDiscoverable\n");
+    WICED_BT_TRACE("\nallowDiscoverable");
 
     //do nothing if we are in DISCOVERABLE state alreay
     if (ble_hidd_link.second_conn_state || (ble_hidd_link.subState == BLEHIDLINK_DISCOVERABLE))
@@ -757,7 +623,7 @@ void blehidlink_allowDiscoverable(void)
 
         // start undirected connectable advertising.
         if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_UNDIRECTED_LOW, 0, NULL))
-            WICED_BT_TRACE("Failed to start undirected connectable advertising!!!\n");
+            WICED_BT_TRACE("\nFailed to start undirected connectable advertising!!!");
 
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
         //start discoverable timer in normal mode
@@ -781,13 +647,14 @@ void blehidlink_setState(uint8_t newState)
 
     if(newState != ble_hidd_link.subState)
     {
+        WICED_BT_TRACE("\nLE state changed from %d to %d", ble_hidd_link.subState, newState);
         ble_hidd_link.subState = newState;
 
-#ifdef DUAL_MODE_HIDD
+        hci_control_send_state_change(BT_TRANSPORT_LE, newState);
+
         //if current active transport is BR/EDR, do not notify observer
-        if (active_transport == BT_TRANSPORT_BR_EDR)
+        if (wiced_hidd_host_transport() == BT_TRANSPORT_BR_EDR)
             return;
-#endif
 
         while(tmpObs)
         {
@@ -807,11 +674,8 @@ void blehidlink_setState(uint8_t newState)
 /////////////////////////////////////////////////////////////////////////////////
 void blehidlink_enterConnected(void)
 {
-    uint8_t *bdAddr;
-    uint8_t bdAddrType;
+    WICED_BT_TRACE("\nblehidlink_enterConnected");
 
-
-    WICED_BT_TRACE("blehidlink_enterConnected\n");
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
     //stop discoverable timer
     osapi_deactivateTimer(&ble_hidd_link.discoverable_timer);
@@ -822,34 +686,36 @@ void blehidlink_enterConnected(void)
         ble_hidd_link.osapi_app_timer_running = 0; // no more application osapi timer is running
     }
 #endif
-    //check if match with bonded device bd_addr
-    if (wiced_ble_hidd_host_info_get_number() && wiced_ble_hidd_host_info_get_first_host(&bdAddr,&bdAddrType))
+
+    hidd_host_setAddrType(ble_hidd_link.gatts_peer_addr, ble_hidd_link.gatts_peer_addr_type);
+
+    // if dev does not agree with our setting, we change both to bonded
+    if (wiced_blehidd_is_device_bonded() ^ hidd_host_isBonded())
     {
-        if ((ble_hidd_link.gatts_peer_addr_type == bdAddrType) && (memcmp(bdAddr, ble_hidd_link.gatts_peer_addr, BD_ADDR_LEN)== 0)
-            && wiced_ble_hidd_host_info_is_bonded())
+        if (hidd_host_isBonded())
         {
-            WICED_BT_TRACE("set device bonded flag\n");
             // this is bonded device, we have the bonding info..
+            WICED_BT_TRACE("\nset device bonded flag");
             wiced_blehidd_set_device_bonded_flag(WICED_TRUE);
         }
         else
         {
-            WICED_BT_TRACE("clear device bonded flag\n");
-            // not a bonded device.
-            wiced_blehidd_set_device_bonded_flag(WICED_FALSE);
+            // already bonded in dev, we update our record
+            WICED_BT_TRACE("\nupdate bonded flag");
+            hidd_host_setBonded(WICED_TRUE);
         }
     }
 
     blehidlink_setState(BLEHIDLINK_CONNECTED);
     // In any case, stop advertising
-    wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
+//    wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
 
-    if(wiced_bt_hid_cfg_settings_ptr->security_requirement_mask)
+    if(wiced_hidd_cfg()->security_requirement_mask)
     {
         if (!wiced_blehidd_is_device_bonded())
         {
-                WICED_BT_TRACE("send security req: \n");
-                wiced_bt_dev_sec_bond(ble_hidd_link.gatts_peer_addr, ble_hidd_link.gatts_peer_addr_type, BT_TRANSPORT_LE, 0, NULL);
+            WICED_BT_TRACE("\nsend security req:");
+            wiced_bt_dev_sec_bond(ble_hidd_link.gatts_peer_addr, ble_hidd_link.gatts_peer_addr_type, BT_TRANSPORT_LE, 0, NULL);
         }
     }
 
@@ -861,10 +727,7 @@ void blehidlink_enterConnected(void)
 /////////////////////////////////////////////////////////////////////////////////
 void blehidlink_enterReconnecting(void)
 {
-    uint8_t *bdAddr;
-    uint8_t bdAddrType;
-    uint8_t i;
-
+    WICED_BT_TRACE("\nblehidlink_enterReconnecting");
     //if low battery shutdown, do nothing
     if (wiced_hal_batmon_is_low_battery_shutdown())
     {
@@ -877,26 +740,26 @@ void blehidlink_enterReconnecting(void)
         return;
 #endif
 
-    WICED_BT_TRACE("enterReconnecting\n");
+    WICED_BT_TRACE("\nenterReconnecting");
     //if reconnect timer is running, stop it
     if (wiced_is_timer_in_use(&ble_hidd_link.reconnect_timer))
     {
         wiced_stop_timer(&ble_hidd_link.reconnect_timer);
     }
 
-    if (wiced_ble_hidd_host_info_get_first_host(&bdAddr,&bdAddrType))
+    if (wiced_hidd_is_paired())
     {
         //NOTE!!! wiced_bt_start_advertisement could modify the value of bdAddr, so MUST use a copy.
         uint8_t tmp_bdAddr[BD_ADDR_LEN];
-        memcpy(tmp_bdAddr, bdAddr, BD_ADDR_LEN);
+        memcpy(tmp_bdAddr, wiced_hidd_host_addr(), BD_ADDR_LEN);
 
 #ifdef WHITE_LIST_FOR_ADVERTISING
         //add to white list
         wiced_bt_ble_update_advertising_white_list(WICED_TRUE, tmp_bdAddr);
 #endif
         // start high duty cycle directed advertising.
-        if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_HIGH, bdAddrType, tmp_bdAddr))
-            WICED_BT_TRACE("Failed to start high duty cycle directed advertising!!!\n");
+        if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_HIGH, wiced_hidd_host_addr_type(), tmp_bdAddr))
+            WICED_BT_TRACE("\nFailed to start high duty cycle directed advertising!!!");
 
         blehidlink_setState(BLEHIDLINK_RECONNECTING);
     }
@@ -974,24 +837,18 @@ uint8_t wiced_ble_hidd_link_send_report(uint8_t reportID, wiced_hidd_report_type
     {
         if (rptSentStatus == WICED_BT_GATT_CCC_CFG_ERR)
         {
-            WICED_BT_TRACE("reportID:%d notification FALSE\n",reportID);
+            WICED_BT_TRACE("\nreportID:%d notification FALSE",reportID);
         }
         else
         {
             // Something did not match
-            WICED_BT_TRACE("SendRpt failed, %d, %d, %d, 0x%x\n", reportID, length, reportType, rptSentStatus);
+            WICED_BT_TRACE("\nSendRpt failed, %d, %d, %d, 0x%x", reportID, length, reportType, rptSentStatus);
         }
     }
 
     //Start a timer to make sure the packet is sent over the air before going to HID Off
     //This is a work around while we determine where we should prevent HID Off
-    if (wiced_is_timer_in_use(&ble_hidd_link.allowSDS_timer))
-    {
-        wiced_stop_timer(&ble_hidd_link.allowSDS_timer);
-    }
-    wiced_start_timer(&ble_hidd_link.allowSDS_timer,1000);// 1 second. timeout in ms
-    ble_hidd_link.allowSDS = 0;
-
+    wiced_hidd_deep_sleep_not_allowed(1000);// No deep sleep for 1 second.
 
     // Whenever there is an activity, restart the connection idle timer
     if (ble_hidd_link.conn_idle_timeout)
@@ -1011,33 +868,29 @@ uint8_t wiced_ble_hidd_link_send_report(uint8_t reportID, wiced_hidd_report_type
 /////////////////////////////////////////////////////////////////////////////////
 void wiced_ble_hidd_link_virtual_cable_unplug(void)
 {
-    if (wiced_ble_hidd_host_info_is_bonded())
+    if (hidd_host_isBonded())
     {
-        uint8_t *bonded_bdadr = wiced_ble_hidd_host_info_get_bdaddr ();
+        uint8_t *bonded_bdadr = wiced_hidd_host_addr();
 #ifdef WHITE_LIST_FOR_ADVERTISING
         //stop advertising anyway before white list operation
         wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
 
         //remove from white list
-        WICED_BT_TRACE("remove from white list : %B\n", bonded_bdadr);
+        WICED_BT_TRACE("\nremove from white list : %B", bonded_bdadr);
         wiced_bt_ble_update_advertising_white_list(WICED_FALSE, bonded_bdadr);
 
         //clear whitlist
         wiced_bt_ble_clear_white_list();
 #endif
 
-        WICED_BT_TRACE("remove bonded device : %B\n", bonded_bdadr);
+        WICED_BT_TRACE("\nremove bonded device : %B", bonded_bdadr);
         wiced_bt_dev_delete_bonded_device(bonded_bdadr);
-
-#ifdef DUAL_MODE_HIDD
-        active_transport = 0;
-#endif
     }
 
-    WICED_BT_TRACE("Removing all bonded info\n");
-    wiced_ble_hidd_host_info_delete_all();
+    WICED_BT_TRACE("\nRemoving all bonded info");
+    wiced_hidd_host_remove_all();
 
-    WICED_BT_TRACE("clear device bonded flag\n");
+    WICED_BT_TRACE("\nclear device bonded flag");
     wiced_blehidd_set_device_bonded_flag(WICED_FALSE);
 
 #ifdef WHITE_LIST_FOR_ADVERTISING
@@ -1080,7 +933,7 @@ void wiced_ble_hidd_link_virtual_cable_unplug(void)
 #ifdef EASY_PAIR
         blehidlink_easyPair(0);
 #else
-        blehidlink_enterDiscoverable(WICED_TRUE);
+//        blehidlink_enterDiscoverable(WICED_TRUE);
 #endif
     }
 
@@ -1123,7 +976,7 @@ void wiced_ble_hidd_link_set_slave_latency(uint16_t slaveLatencyinmS)
     ble_hidd_link.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN] =
     ble_hidd_link.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MAX] = wiced_blehidd_get_connection_interval();
 
-    WICED_BT_TRACE("wiced_ble_hidd_link_set_slave_latency: interval=%d, slavelatency=%d\n",
+    WICED_BT_TRACE("\nwiced_ble_hidd_link_set_slave_latency: interval=%d, slavelatency=%d",
                ble_hidd_link.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN],
                ble_hidd_link.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY]);
     wiced_blehidd_set_asym_slave_latency(wiced_blehidd_get_connection_handle(), ble_hidd_link.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY]);
@@ -1132,9 +985,17 @@ void wiced_ble_hidd_link_set_slave_latency(uint16_t slaveLatencyinmS)
 /////////////////////////////////////////////////////////////////////////////////
 /// handler when received LE Connection Update Complete event
 /////////////////////////////////////////////////////////////////////////////////
+wiced_bool_t wiced_ble_hidd_link_conn_param_updated()
+{
+    return blehidlink_connection_param_updated;
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/// handler when received LE Connection Update Complete event
+/////////////////////////////////////////////////////////////////////////////////
 void wiced_ble_hidd_link_conn_update_complete(void)
 {
-    WICED_BT_TRACE("ConnParamUpdate:Interval:%d, Latency:%d, Supervision TO:%d\n",
+    WICED_BT_TRACE("\nConnParamUpdate:Interval:%d, Latency:%d, Supervision TO:%d",
                  wiced_blehidd_get_connection_interval(),wiced_blehidd_get_slave_latency(),wiced_blehidd_get_supervision_timeout());
 
 #ifndef  SKIP_CONNECT_PARAM_UPDATE_EVEN_IF_NO_PREFERED
@@ -1164,7 +1025,7 @@ void wiced_ble_hidd_link_conn_param_update(void)
             (wiced_blehidd_get_connection_interval() > ble_hidd_link.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MAX]) ||
             (wiced_blehidd_get_slave_latency() != ble_hidd_link.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY]))
     {
-        WICED_BT_TRACE("send conn param request\n");
+        WICED_BT_TRACE("\nsend conn param request");
         wiced_bt_l2cap_update_ble_conn_params(ble_hidd_link.gatts_peer_addr,
                           ble_hidd_link.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN],
                           ble_hidd_link.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MAX],
@@ -1180,7 +1041,7 @@ void wiced_ble_hidd_link_conn_param_update(void)
 /////////////////////////////////////////////////////////////////////////////////
 void blehidlink_reconnect_timerCb( uint32_t arg)
 {
-    WICED_BT_TRACE("Reconnect\n");
+    WICED_BT_TRACE("\nReconnect");
 
     wiced_ble_hidd_link_connect();
 }
@@ -1192,7 +1053,7 @@ void blehidlink_reconnect_timerCb( uint32_t arg)
 /////////////////////////////////////////////////////////////////////////////////
 void blehidlink_connectionIdle_timerCb(INT32 args, UINT32 overTimeInUs)
 {
-    WICED_BT_TRACE("connection Idle timeout\n");
+    WICED_BT_TRACE("\nconnection Idle timeout");
 
     //disconnect the link
     wiced_ble_hidd_link_disconnect();
@@ -1207,7 +1068,7 @@ void wiced_ble_hidd_link_aon_action_handler(uint8_t  type)
 {
     if (type == BLEHIDLINK_RESTORE_FROM_AON)
     {
-        WICED_BT_TRACE("WICED_BT_AON_DRIVER_RESTORE\n");
+        WICED_BT_TRACE("\nWICED_BT_AON_DRIVER_RESTORE");
 
         ble_hidd_link.resumeState = blehid_aon_data.blehidlink_state;
         ble_hidd_link.gatts_conn_id = blehid_aon_data.gatts_conn_id;
@@ -1264,16 +1125,6 @@ void wiced_ble_hidd_link_aon_action_handler(uint8_t  type)
     }
 }
 
-/////////////////////////////////////////////////////////////////////////////////
-/// timeout handler
-///
-/// \param arg - don't care
-/////////////////////////////////////////////////////////////////////////////////
-void blehidlink_allowsleeptimerCb( uint32_t arg)
-{
-    ble_hidd_link.allowSDS = 1;
-}
-
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
 /////////////////////////////////////////////////////////////////////////////////
 /// timeout handler
@@ -1296,7 +1147,7 @@ void blehidlink_stateswitchtimerCb( uint32_t arg)
 /////////////////////////////////////////////////////////////////////////////////
 void blehidlink_discoverabletimerCb(INT32 args, UINT32 overTimeInUs)
 {
-    WICED_BT_TRACE("blehidlink_discoverabletimerCb!!!\n");
+    WICED_BT_TRACE("\nblehidlink_discoverabletimerCb!!!");
     wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
 }
 #endif
@@ -1418,7 +1269,7 @@ void blehidlink_easyPair_scan_result_cback( wiced_bt_ble_scan_results_t *p_scan_
     }
     else
     {
-        WICED_BT_TRACE( "Scan completed\n" );
+        WICED_BT_TRACE("\nScan completed" );
         if (ble_hidd_link.easyPair_deviceIndex != INVALID_INDEX)
         {
             // start high duty cycle directed advertising.
@@ -1450,7 +1301,7 @@ void blehidlink_easyPair_timerCb(uint32_t arg)
     int32_t highest_rssi=INVALID_RSSI;
     int32_t rssi_avg;
 
-    WICED_BT_TRACE("blehidlink_easyPair_timerCb\n");
+    WICED_BT_TRACE("\nblehidlink_easyPair_timerCb");
 
     //stop timer
     if (wiced_is_timer_in_use(&ble_hidd_link.easyPair_timer))
@@ -1502,282 +1353,12 @@ void blehidlink_easyPair_scan(void)
 /////////////////////////////////////////////////////////////////////////////////
 void blehidlink_easyPair(uint32_t arg)
 {
-    WICED_BT_TRACE("blehidlink_easyPair\n");
+    WICED_BT_TRACE("\nblehidlink_easyPair");
 
     easyPairInit();
     blehidlink_easyPair_scan();
 }
 #endif //#ifdef EASY_PAIR
 
-/*
- * hidd lib link default management callback
- */
-wiced_bt_management_cback_t *app_management_cback_ptr = NULL;
-wiced_result_t (*app_init_ptr)(void) = NULL;
-wiced_result_t ble_hidd_lib_management_cback(wiced_bt_management_evt_t event, wiced_bt_management_evt_data_t *p_event_data)
-{
-    wiced_result_t result = WICED_BT_SUCCESS;
-    wiced_bt_device_link_keys_t *pLinkKeys;
-    wiced_bt_ble_advert_mode_t curr_adv_mode;
-    uint8_t *p_keys;
-    wiced_bt_device_address_t         bda = { 0 };
 
-    // library should not hard coded to reference application data structure. The application should initialize usage by passing the pointer.
-    // For backward compatiblity, the legacy code may not initialize the pointer, in that case, we assign the pointer to the hard coded data.
-    // This code should be removed once all application is changed to call wiced_ble_hidd_start to initialize wiced_bt_hid_cfg_settings_ptr.
-    if (!wiced_bt_hid_cfg_settings_ptr)
-    {
-        WICED_BT_TRACE("HID configuration is not initialized by wiced_ble_hidd_start()\n");
-        extern const wiced_bt_cfg_settings_t wiced_bt_hid_cfg_settings;
-        wiced_bt_hid_cfg_settings_ptr = &wiced_bt_hid_cfg_settings;
-    }
-
-    WICED_BT_TRACE("=== BT stack cback event %d\n", event);
-
-    if (app_management_cback_ptr)
-    {
-        result = app_management_cback_ptr(event, p_event_data);
-        if (result != WICED_NOT_FOUND) // if application has handled the event
-        {
-            return result;
-        }
-        // not handled by app, default result back to success and continue with default handler
-        result = WICED_BT_SUCCESS;
-    }
-
-    // pass event to HCI control host if it is enabled
-    hci_control_le_handle_event(event, p_event_data);
-
-    // hidd_lib default handler
-    switch( event )
-    {
-        /* Bluetooth  stack enabled */
-        case BTM_ENABLED_EVT:
-            hci_control_le_enable_trace();
-            wiced_bt_dev_read_local_addr(bda);
-            WICED_BT_TRACE("Address: [ %B]\n", bda);
-            if (app_init_ptr)
-            {
-                result = app_init_ptr();
-            }
-            break;
-
-        case BTM_PAIRING_IO_CAPABILITIES_BLE_REQUEST_EVT:
-            WICED_BT_TRACE("BTM_PAIRING_IO_CAPABILITIES_BLE_REQUEST_EVT\n");
-            p_event_data->pairing_io_capabilities_ble_request.local_io_cap = BTM_IO_CAPABILITIES_NONE;
-            p_event_data->pairing_io_capabilities_ble_request.oob_data = BTM_OOB_NONE;
-            p_event_data->pairing_io_capabilities_ble_request.auth_req = BTM_LE_AUTH_REQ_SC_ONLY|BTM_LE_AUTH_REQ_BOND;              /* LE sec bonding */
-            p_event_data->pairing_io_capabilities_ble_request.max_key_size = 16;
-            p_event_data->pairing_io_capabilities_ble_request.init_keys = 0x0F; //(BTM_LE_KEY_PENC|BTM_LE_KEY_PID|BTM_LE_KEY_PCSRK|BTM_LE_KEY_PLK);
-            p_event_data->pairing_io_capabilities_ble_request.resp_keys = 0x0F; //(BTM_LE_KEY_PENC|BTM_LE_KEY_PID|BTM_LE_KEY_PCSRK|BTM_LE_KEY_PLK);
-            break;
-
-        case BTM_PAIRING_COMPLETE_EVT:
-            if(p_event_data->pairing_complete.transport == BT_TRANSPORT_LE)
-            {
-                wiced_bt_dev_ble_pairing_info_t * p_info;
-                p_info =  &p_event_data->pairing_complete.pairing_complete_info.ble;
-                WICED_BT_TRACE( "LE Pairing Complete: %x\n",p_info->reason);
-
-                //bonding successful
-                if (!p_info->reason )
-                {
-                    WICED_BT_TRACE( "BONDED successful\n");
-                    if (!wiced_blehidd_is_device_bonded())
-                    {
-                        WICED_BT_TRACE( "set device bonded flag\n");
-                        wiced_blehidd_set_device_bonded_flag(WICED_TRUE);
-                    }
-
-#ifdef CONNECTED_ADVERTISING_SUPPORTED
-                    //If there is a connection existing, delete pairing information and disconnect existing connection
-                    if (ble_hidd_link.second_conn_state == BLEHIDLINK_2ND_CONNECTION_PENDING)
-                    {
-                        ble_hidd_link.second_conn_state = BLEHIDLINK_2ND_CONNECTION_NOT_ALLOWED;
-
-                        if (wiced_ble_hidd_host_info_is_bonded())
-                        {
-                            uint8_t *bonded_bdadr = (uint8_t *)wiced_ble_hidd_host_info_get_bdaddr();
-
-                            WICED_BT_TRACE("remove bonded device : %B\n", bonded_bdadr);
-                            wiced_bt_dev_delete_bonded_device(bonded_bdadr);
-                        }
-
-                        WICED_BT_TRACE("Removing all bonded info\n");
-                        wiced_ble_hidd_host_info_delete_all();
-
-                        //disconnect existing connection
-                        wiced_bt_gatt_disconnect(ble_hidd_link.existing_connection_gatts_conn_id);
-                    }
-#endif
-                    //SMP result callback: successful
-                    wiced_ble_hidd_host_info_add_first(ble_hidd_link.gatts_peer_addr, ble_hidd_link.gatts_peer_addr_type, &blehostlist_link_keys, blehostlist_flags);
-                }
-                else
-                {
-                    //SMP result callback: failed
-                    WICED_BT_TRACE( " BONDED failed\n");
-#ifdef CONNECTED_ADVERTISING_SUPPORTED
-                    //If this is from the new connection
-                    if (ble_hidd_link.second_conn_state == BLEHIDLINK_2ND_CONNECTION_PENDING)
-                    {
-                        uint16_t temp_gatts_conn_id = ble_hidd_link.gatts_conn_id;
-
-                        WICED_BT_TRACE("delete the new connection: %d\n", temp_gatts_conn_id);
-
-                        ble_hidd_link.second_conn_state = BLEHIDLINK_2ND_CONNECTION_NOT_ALLOWED;
-
-                        //recover current connection gatt connection id
-                        ble_hidd_link.gatts_conn_id = ble_hidd_link.existing_connection_gatts_conn_id;
-
-                        //disconnect new connection
-                        wiced_bt_gatt_disconnect(temp_gatts_conn_id);
-
-                        //restore embeded controller info for the LE link (peer device info, bonded, encrypted, connection parameters etc.)
-                        memcpy(&emConInfo_devInfo, &ble_hidd_link.existing_emconinfo, sizeof(EMCONINFO_DEVINFO));
-                    }
-                    else
-#endif
-                    wiced_ble_hidd_host_info_delete(ble_hidd_link.gatts_peer_addr, ble_hidd_link.gatts_peer_addr_type);
-                }
-            }
-            break;
-
-        case BTM_PAIRED_DEVICE_LINK_KEYS_UPDATE_EVT:
-            WICED_BT_TRACE("BTM_PAIRED_DEVICE_LINK_KEYS_UPDATE_EVT %B\n", (uint8_t *)&p_event_data->paired_device_link_keys_update);
-            memcpy(&blehostlist_link_keys, &p_event_data->paired_device_link_keys_update, sizeof(wiced_bt_device_link_keys_t));
-            wiced_trace_array((uint8_t *)(&(blehostlist_link_keys.key_data)), BTM_SECURITY_KEY_DATA_LEN);
-            break;
-
-        case  BTM_PAIRED_DEVICE_LINK_KEYS_REQUEST_EVT:
-            WICED_BT_TRACE("BTM_PAIRED_DEVICE_LINK_KEYS_REQUEST_EVT\n");
-            pLinkKeys = (wiced_bt_device_link_keys_t *)wiced_ble_hidd_host_info_get_link_keys();
-            WICED_BT_TRACE("link_key:%s [%B] [%B]\n", pLinkKeys ? "Yes" : "No", pLinkKeys->bd_addr, p_event_data->paired_device_link_keys_request.bd_addr);
-            if (pLinkKeys && !memcmp(pLinkKeys->bd_addr, p_event_data->paired_device_link_keys_request.bd_addr, BD_ADDR_LEN))
-            {
-                memcpy(&p_event_data->paired_device_link_keys_request, pLinkKeys, sizeof(wiced_bt_device_link_keys_t));
-            }
-            else
-            {
-                WICED_BT_TRACE("link_key not available\n");
-                result = WICED_BT_ERROR;
-            }
-            break;
-
-        case BTM_SECURITY_REQUEST_EVT:
-            WICED_BT_TRACE("BTM_SECURITY_REQUEST_EVT\n");
-             /* Use the default security */
-            wiced_bt_ble_security_grant(p_event_data->security_request.bd_addr,  WICED_BT_SUCCESS);
-            break;
-
-        case BTM_LOCAL_IDENTITY_KEYS_UPDATE_EVT:
-            WICED_BT_TRACE("BTM_LOCAL_IDENTITY_KEYS_UPDATE_EVT\n");
-            /* save keys to NVRAM */
-            p_keys = (uint8_t *)&p_event_data->local_identity_keys_update;
-            wiced_hal_write_nvram ( VS_LOCAL_IDENTITY_ID, sizeof( wiced_bt_local_identity_keys_t ), p_keys ,&result );
-            WICED_BT_TRACE("local keys save to NVRAM result: %d \n", result);
-            wiced_trace_array(p_event_data->local_identity_keys_update.local_key_data, BTM_SECURITY_LOCAL_KEY_DATA_LEN);
-            break;
-
-        case  BTM_LOCAL_IDENTITY_KEYS_REQUEST_EVT:
-            WICED_BT_TRACE("BTM_LOCAL_IDENTITY_KEYS_REQUEST_EVT\n");
-            /* read keys from NVRAM */
-            p_keys = (uint8_t *)&p_event_data->local_identity_keys_request;
-            wiced_hal_read_nvram( VS_LOCAL_IDENTITY_ID, sizeof(wiced_bt_local_identity_keys_t), p_keys, &result );
-            WICED_BT_TRACE("local keys read from NVRAM result: %d\n",  result);
-            if (!result)
-                wiced_trace_array(p_keys, BTM_SECURITY_LOCAL_KEY_DATA_LEN);
-            break;
-
-        case BTM_BLE_ADVERT_STATE_CHANGED_EVT:
-            curr_adv_mode = app_adv_mode;
-            app_adv_mode = p_event_data->ble_advert_state_changed;
-
-            WICED_BT_TRACE( "Advertisement State Change: %d -> %d\n", curr_adv_mode, app_adv_mode);
-            //if high duty cycle directed advertising stops
-            if ( (curr_adv_mode == BTM_BLE_ADVERT_DIRECTED_HIGH) &&
-                     (app_adv_mode == BTM_BLE_ADVERT_DIRECTED_LOW))
-            {
-                wiced_ble_hidd_link_directed_adv_stop();
-            }
-#if !defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || !defined(SUPPORT_EPDS)
-            // btstack will switch to low adv mode automatically when high adv mode timeout,
-            // for HIDD, we want to stop adv instead
-            else if ((curr_adv_mode == BTM_BLE_ADVERT_UNDIRECTED_HIGH) &&
-                         (app_adv_mode == BTM_BLE_ADVERT_UNDIRECTED_LOW))
-            {
-                wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
-            }
-#endif
-            // if we are reconnecting and adv stops, we enter disconnected state
-            if (ble_hidd_link.subState == BLEHIDLINK_RECONNECTING && !app_adv_mode)
-            {
-                blehidlink_setState(BLEHIDLINK_DISCONNECTED);
-#ifdef AUTO_RECONNECT
-                if(ble_hidd_link.auto_reconnect && wiced_ble_hidd_host_info_is_bonded() && !wiced_hal_batmon_is_low_battery_shutdown())
-                    wiced_ble_hidd_link_connect();
-#endif
-            }
-            break;
-
-        case BTM_BLE_SCAN_STATE_CHANGED_EVT:
-                WICED_BT_TRACE( "Scan State Change: %d\n", p_event_data->ble_scan_state_changed );
-            break;
-
-        case BTM_ENCRYPTION_STATUS_EVT:
-            WICED_BT_TRACE("BTM_ENCRYPTION_STATUS_EVT");
-            if (p_event_data->encryption_status.result == WICED_SUCCESS)
-            {
-                WICED_BT_TRACE(" link encrypted\n");
-                wiced_blehidd_set_link_encrypted_flag(WICED_TRUE);
-            }
-            else
-            {
-                WICED_BT_TRACE(" Encryption failed:%d\n", p_event_data->encryption_status.result);
-            }
-            break;
-
-        case BTM_BLE_CONNECTION_PARAM_UPDATE:
-            WICED_BT_TRACE(" BTM_BLE_CONNECTION_PARAM_UPDATE status:%d\n", p_event_data->ble_connection_param_update.status);
-            if (!p_event_data->ble_connection_param_update.status)
-            {
-                wiced_ble_hidd_link_conn_update_complete();
-            }
-            break;
-
-        default:
-            WICED_BT_TRACE("unhandled management_cback event: %d!!!\n", event );
-            break;
-    }
-    return result;
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// wiced_ble_hidd_start
-///
-/// \param p_bt_management_cback  - application bt_management callback function
-///        p_bt_cfg_settings      - bt configuration setting
-///        wiced_bt_cfg_buf_pools - buffer pool configuration
-/////////////////////////////////////////////////////////////////////////////////
-void wiced_ble_hidd_start(const char * appName, wiced_result_t (*p_bt_app_init)(),
-                          wiced_bt_management_cback_t   * p_bt_management_cback,
-                          const wiced_bt_cfg_settings_t * p_bt_cfg_settings,
-                          const wiced_bt_cfg_buf_pool_t * p_bt_cfg_buf_pools)
-{
-    wiced_set_debug_uart(WICED_ROUTE_DEBUG_TO_PUART);
-    WICED_BT_TRACE("%s start\n",appName);
-
-    app_management_cback_ptr = p_bt_management_cback;
-    app_init_ptr = p_bt_app_init;
-    if (!p_bt_cfg_settings || !p_bt_cfg_buf_pools)
-    {
-        WICED_BT_TRACE("bt or buff_pool configration is undefined\n");
-    }
-    else
-    {
-        wiced_bt_hid_cfg_settings_ptr = p_bt_cfg_settings;
-        wiced_bt_stack_init (ble_hidd_lib_management_cback, p_bt_cfg_settings, p_bt_cfg_buf_pools);
-    }
-}
-
-#endif //#ifndef BT_HIDD_ONLY
+#endif //#ifdef BLE_SUPPORT

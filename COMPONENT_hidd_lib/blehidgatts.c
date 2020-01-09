@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Cypress Semiconductor Corporation or a subsidiary of
+ * Copyright 2020, Cypress Semiconductor Corporation or a subsidiary of
  * Cypress Semiconductor Corporation. All Rights Reserved.
  *
  * This software, including source code, documentation and related
@@ -36,7 +36,7 @@
  * GATT callback function and handlers
  *
  */
-#ifndef BT_HIDD_ONLY
+#ifdef BLE_SUPPORT
 #include "wiced_bt_trace.h"
 #include "wiced_bt_dev.h"
 #include "wiced_bt_ble.h"
@@ -46,8 +46,8 @@
 #include "wiced_hal_nvram.h"
 #include "wiced_result.h"
 #include "blehidlink.h"
-#include "blehidhci.h"
 #include "blehidgatts.h"
+#include "hidd_lib.h"
 
 #ifdef OTA_FIRMWARE_UPGRADE
 #include "wiced_bt_ota_firmware_upgrade.h"
@@ -66,52 +66,45 @@ static uint8_t  ota_fw_upgrade_initialized = WICED_FALSE;
 extern void     bleremoteapp_ota_fw_upgrade_status(uint8_t status);
 #endif
 
-extern const attribute_t blehid_gattAttributes[];
-extern const uint16_t blehid_gattAttributes_size;
-
-#ifdef PTS_HIDS_CONFORMANCE_TC_CW_BV_03_C
-uint16_t last_written_gatt_attr_handle;
-uint16_t last_written_gatt_attr_length;
-#endif
-
+static attribute_t * gattAttributes = NULL;
+static uint16_t gattAttributes_size = 0;
 static blehid_gatts_req_read_callback_t blehid_gatts_req_read_callback = NULL;
 static blehid_gatts_req_write_callback_t blehid_gatts_req_write_callback = NULL;
 #ifdef CONNECTED_ADVERTISING_SUPPORTED
 wiced_bt_gatt_2nd_link_up_handler_t wiced_bt_gatt_2nd_link_up_handler = NULL;
 #endif
 
+/*
+ *
+ */
 const attribute_t * blehid_gatts_get_attribute(uint16_t handle)
 {
-    const attribute_t * puAttributes = blehid_gattAttributes;
-    uint16_t limit = blehid_gattAttributes_size;
+    attribute_t * puAttributes = gattAttributes;
+    uint16_t limit = gattAttributes_size;
 
-    while(limit)
+    while(limit--)
     {
         if(puAttributes->handle == handle)
-            break;
+        {
+            return puAttributes;
+        }
 
         puAttributes++;
-        limit--;
-    }
-    //WICED_BT_TRACE("Search %d attr %d %x\n", handle, limit, puAttributes);
-
-    if(limit == 0)
-    {
-        //WICED_BT_TRACE("\b attribute not FOUND!!!");
-        return NULL;
     }
 
-    return puAttributes;
+    WICED_BT_TRACE("\nRequested attribute 0x%04x not found!!!", handle);
+    return NULL;
 }
 
 /*
  * Process Read request or command from peer device
- * */
+ */
 wiced_bt_gatt_status_t blehid_gatts_req_read_handler( uint16_t conn_id, wiced_bt_gatt_read_t * p_read_data )
 {
     const attribute_t * puAttribute;
     wiced_bt_gatt_status_t result;
     uint16_t attr_len_to_copy;
+    uint8_t *attr_val_ptr = NULL;
 
     if(!p_read_data)
     {
@@ -138,60 +131,57 @@ wiced_bt_gatt_status_t blehid_gatts_req_read_handler( uint16_t conn_id, wiced_bt
         }
     }
 
-    // default to success
-    result = WICED_BT_GATT_SUCCESS;
-
-    //WICED_BT_TRACE("read_hndlr conn %d hdl 0x%x\n", conn_id, p_read_data->handle );
+    // default to invalid handle
+    result = WICED_BT_GATT_INVALID_HANDLE;
 
     puAttribute = blehid_gatts_get_attribute(p_read_data->handle);
-    if(!puAttribute)
+    if(puAttribute)
     {
-        return WICED_BT_GATT_INVALID_HANDLE;
-    }
-
-    attr_len_to_copy = puAttribute->attr_len;
-
-#ifdef PTS_HIDS_CONFORMANCE_TC_CW_BV_03_C
-    if( puAttribute->handle == last_written_gatt_attr_handle )
-    {
-        attr_len_to_copy = last_written_gatt_attr_length;
-    }
-#endif
-
-    //WICED_BT_TRACE("attr_len_to_copy: %d offset: %d\n", attr_len_to_copy, p_read_data->offset);
-
-    if(p_read_data->offset >= puAttribute->attr_len)
-    {
-        attr_len_to_copy = 0;
-        result = WICED_BT_GATT_INVALID_OFFSET;
-        WICED_BT_TRACE("WICED_BT_GATT_INVALID_OFFSET");
-    }
-
-    if(attr_len_to_copy)
-    {
-        const uint8_t * from;
         uint16_t mtu;
-        uint16_t to_copy = attr_len_to_copy - p_read_data->offset;
+
+        //check if this is read request is for a long attribute value, if so take care of the offset as well
+        if(p_read_data->is_long)
+        {
+            attr_val_ptr = (uint8_t *) puAttribute->p_attr + p_read_data->offset;
+            attr_len_to_copy = puAttribute->attr_len - p_read_data->offset;
+        }
+        else
+        {
+            attr_val_ptr = (uint8_t *) puAttribute->p_attr;
+            attr_len_to_copy = puAttribute->attr_len;
+        }
+
+        if(attr_len_to_copy<*p_read_data->p_val_len)
+        {
+            // report back our length
+            *p_read_data->p_val_len = attr_len_to_copy;
+        }
 
         mtu = wiced_blehidd_get_att_mtu_size(ble_hidd_link.gatts_peer_addr);
 
-        if(to_copy >= mtu)
+        //make sure copying buff is large enough so it won't corrupt memory
+        if(attr_len_to_copy >= mtu)
         {
-            to_copy = mtu - 1;
+            WICED_BT_TRACE("\nsize(%d) > mtu(%d)", attr_len_to_copy, mtu);
+            attr_len_to_copy = mtu - 1;
         }
 
-        from = ((uint8_t *)puAttribute->p_attr) + p_read_data->offset;
-        *p_read_data->p_val_len = to_copy;
+        // copy over the value to the supplied buffer(entirely if it fits, data worth of MTU size)
+        // if we have only sent partial value of an attribute we expect the peer to issue a read blob request to get the
+        // rest of the attribute value.
+        memcpy( p_read_data->p_val, attr_val_ptr, attr_len_to_copy );
+//        WICED_BT_TRACE("\nSending %d bytes from offset %d for attrib handle 0x%04x", attr_len_to_copy, p_read_data->offset, p_read_data->handle);
 
-        memcpy( p_read_data->p_val, from, to_copy);
+        result = WICED_BT_GATT_SUCCESS;
     }
-
     return result;
 }
 
 #ifdef OTA_FIRMWARE_UPGRADE
 blehid_ota_fw_upgrade_status_callback_t blehid_ota_fw_upgrade_status_callback = NULL;
-
+/*
+ *
+ */
 void blehid_register_ota_fw_upgrade_status_callback(blehid_ota_fw_upgrade_status_callback_t cb)
 {
     blehid_ota_fw_upgrade_status_callback = cb;
@@ -237,7 +227,7 @@ wiced_bt_gatt_status_t blehid_gatts_req_write_handler( uint16_t conn_id, wiced_b
             if (wiced_ota_fw_upgrade_init(NULL, blehid_ota_fw_upgrade_status, NULL) == WICED_FALSE)
  #endif
             {
-                WICED_BT_TRACE("OTA upgrade Init failure!!! \n");
+                WICED_BT_TRACE("\nOTA upgrade Init failure!!!");
                 return WICED_BT_GATT_ERR_UNLIKELY;
             }
             ota_fw_upgrade_initialized = WICED_TRUE;
@@ -262,7 +252,7 @@ wiced_bt_gatt_status_t blehid_gatts_req_write_handler( uint16_t conn_id, wiced_b
         // default to success
         result = WICED_BT_GATT_SUCCESS;
 
-        //WICED_BT_TRACE("write_handler: conn %d hdl %x prep %d off %d len %d \n ", conn_id, p_data->handle, p_data->is_prep, p_data->offset,p_data->val_len );
+        //WICED_BT_TRACE("\nwrite_handler: conn %d hdl %x prep %d off %d len %d", conn_id, p_data->handle, p_data->is_prep, p_data->offset,p_data->val_len );
 
         puAttribute = (attribute_t *)blehid_gatts_get_attribute(p_data->handle);
 
@@ -278,10 +268,6 @@ wiced_bt_gatt_status_t blehid_gatts_req_write_handler( uint16_t conn_id, wiced_b
             }
             else
             {
-#ifdef PTS_HIDS_CONFORMANCE_TC_CW_BV_03_C
-                last_written_gatt_attr_handle = puAttribute->handle;
-                last_written_gatt_attr_length = p_data->val_len;
-#endif
                 result = wiced_blehidd_write_handler(p_data);
             }
 #if 0
@@ -308,10 +294,13 @@ wiced_bt_gatt_status_t blehid_gatts_req_write_handler( uint16_t conn_id, wiced_b
     }
     return result;
 }
-/* This function is invoked when connection is established */
+
+/*
+ * This function is invoked when connection is established
+ */
 wiced_bt_gatt_status_t blehid_gatts_connection_up( wiced_bt_gatt_connection_status_t *p_status )
 {
-    WICED_BT_TRACE( "Link up, id: %d, peer_addr_type: %d, peer_addr: %B, second_conn_state: %d\n",  p_status->conn_id, p_status->addr_type, p_status->bd_addr, ble_hidd_link.second_conn_state);
+    WICED_BT_TRACE("\nLink up, id: %d, peer_addr_type: %d, peer_addr: %B, second_conn_state: %d",  p_status->conn_id, p_status->addr_type, p_status->bd_addr, ble_hidd_link.second_conn_state);
 
     //if 2nd connection is not allowed, disconnect right away
     if (wiced_ble_hidd_link_is_connected() && !ble_hidd_link.second_conn_state)
@@ -322,7 +311,7 @@ wiced_bt_gatt_status_t blehid_gatts_connection_up( wiced_bt_gatt_connection_stat
     }
 
     //configure ATT MTU size with peer device
-    wiced_bt_gatt_configure_mtu(p_status->conn_id, wiced_bt_hid_cfg_settings_ptr->gatt_cfg.max_mtu_size);
+    wiced_bt_gatt_configure_mtu(p_status->conn_id, wiced_hidd_cfg()->gatt_cfg.max_mtu_size);
 
 #ifdef CONNECTED_ADVERTISING_SUPPORTED
     //get new connection while connected with existing host
@@ -350,7 +339,7 @@ wiced_bt_gatt_status_t blehid_gatts_connection_up( wiced_bt_gatt_connection_stat
     wiced_ota_fw_upgrade_connection_status_event(p_status);
 #endif
 
-    hci_control_le_send_connect_event( p_status->addr_type, p_status->bd_addr, p_status->conn_id, p_status->link_role );
+    hci_control_send_connect_evt( p_status->addr_type, p_status->bd_addr, p_status->conn_id, p_status->link_role );
 
     return WICED_BT_GATT_SUCCESS;
 }
@@ -360,7 +349,7 @@ wiced_bt_gatt_status_t blehid_gatts_connection_up( wiced_bt_gatt_connection_stat
  * */
 wiced_bt_gatt_status_t blehid_gatts_connection_down( wiced_bt_gatt_connection_status_t *p_status )
 {
-    WICED_BT_TRACE( "Link down, id: %d reason: %d\n",  p_status->conn_id, p_status->reason );
+    WICED_BT_TRACE("\nLink down, id: %d reason: %d",  p_status->conn_id, p_status->reason );
     //connection is disconnected, and 2nd connection not allowed
     if (ble_hidd_link.gatts_conn_id == p_status->conn_id && !ble_hidd_link.second_conn_state)
     {
@@ -390,10 +379,13 @@ wiced_bt_gatt_status_t blehid_gatts_connection_down( wiced_bt_gatt_connection_st
 #endif
     }
 #endif
-    hci_control_le_send_disconnect_evt( p_status->reason, p_status->conn_id );
+    hci_control_send_disconnect_evt( p_status->reason, p_status->conn_id );
     return WICED_BT_GATT_SUCCESS;
 }
 
+/*
+ *
+ */
 wiced_bt_gatt_status_t blehid_gatts_conn_status_cb( wiced_bt_gatt_connection_status_t *p_status )
 {
     if(p_status->connected)
@@ -418,7 +410,7 @@ wiced_bt_gatt_status_t blehid_gatts_conn_status_cb( wiced_bt_gatt_connection_sta
  */
 wiced_bt_gatt_status_t blehid_gatts_req_conf_handler( uint16_t conn_id, uint16_t handle )
 {
-    WICED_BT_TRACE( "blehid_gatts_req_conf_handler, conn %d hdl %d\n", conn_id, handle );
+    WICED_BT_TRACE("\nblehid_gatts_req_conf_handler, conn %d hdl %d", conn_id, handle );
 
 #ifdef OTA_FIRMWARE_UPGRADE
     // if indication confirmation is for the OTA FW upgrade service, pass it to the library to process
@@ -429,14 +421,16 @@ wiced_bt_gatt_status_t blehid_gatts_req_conf_handler( uint16_t conn_id, uint16_t
 #endif
 
     return WICED_BT_GATT_SUCCESS;
-
 }
 
+/*
+ *
+ */
 wiced_bt_gatt_status_t blehid_gatts_req_cb( wiced_bt_gatt_attribute_request_t *p_data )
 {
     wiced_bt_gatt_status_t result = WICED_BT_GATT_SUCCESS;
 
-    //WICED_BT_TRACE( "_blehid_gatts_req_cb. conn %d, type %d\n", p_data->conn_id, p_data->request_type );
+//    WICED_BT_TRACE("\nblehid_gatts_req_cb conn %d, type %d", p_data->conn_id, p_data->request_type );
     switch ( p_data->request_type )
     {
         case GATTS_REQ_TYPE_READ:
@@ -449,7 +443,7 @@ wiced_bt_gatt_status_t blehid_gatts_req_cb( wiced_bt_gatt_attribute_request_t *p
             break;
 
         case GATTS_REQ_TYPE_MTU:
-            WICED_BT_TRACE("GATTS_REQ_TYPE_MTU to %d bytes\n", p_data->data.mtu);
+            WICED_BT_TRACE("\nGATTS_REQ_TYPE_MTU to %d bytes", p_data->data.mtu);
             break;
 
         case GATTS_REQ_TYPE_CONF:
@@ -457,26 +451,23 @@ wiced_bt_gatt_status_t blehid_gatts_req_cb( wiced_bt_gatt_attribute_request_t *p
             break;
 
         default:
-            WICED_BT_TRACE("Please check this blehid_gatts_req_cb!!!\n");
+            WICED_BT_TRACE("\nPlease check this blehid_gatts_req_cb!!!");
             break;
     }
 
-    //Start a timer to make sure the packet is sent over the air before enter SDS
-    if (wiced_is_timer_in_use(&ble_hidd_link.allowSDS_timer))
-    {
-        wiced_stop_timer(&ble_hidd_link.allowSDS_timer);
-    }
-    wiced_start_timer(&ble_hidd_link.allowSDS_timer,1000);// 1 second. timeout in ms
-    ble_hidd_link.allowSDS = 0;
+    wiced_hidd_deep_sleep_not_allowed(1000);// No deep sleep for 1 second.
 
     return result;
 }
 
+/*
+ *
+ */
 wiced_bt_gatt_status_t blehid_gatts_callback( wiced_bt_gatt_evt_t event, wiced_bt_gatt_event_data_t *p_data)
 {
     wiced_bt_gatt_status_t result = WICED_BT_GATT_SUCCESS;
 
-    //WICED_BT_TRACE("\nblehid_gatts_callback event: 0x%x", event);
+//    WICED_BT_TRACE("\nblehid_gatts_callback event: %d", event);
 
     switch(event)
     {
@@ -497,26 +488,30 @@ wiced_bt_gatt_status_t blehid_gatts_callback( wiced_bt_gatt_evt_t event, wiced_b
             break;
 
         default:
-            WICED_BT_TRACE("Please check this unhandled event!!!:0x%x\n", event);
+            WICED_BT_TRACE("\ngatts_callback: unhandled event!!!:0x%x", event);
             break;
     }
 
     return result;
 }
 
-
-wiced_bt_gatt_status_t blehid_gatts_init(const uint8_t * gatt_db, uint16_t len,  blehid_gatts_req_read_callback_t rd_cb,  blehid_gatts_req_write_callback_t wr_cb)
+/*
+ *
+ */
+wiced_bt_gatt_status_t wiced_hidd_gatts_init(const uint8_t * gatt_db, uint16_t len, const attribute_t * gAttrib, uint16_t gAttrib_len, blehid_gatts_req_read_callback_t rd_cb,  blehid_gatts_req_write_callback_t wr_cb)
 {
     wiced_bt_gatt_status_t gatt_status;
 
     blehid_gatts_req_read_callback = rd_cb;
     blehid_gatts_req_write_callback = wr_cb;
+    gattAttributes = (attribute_t *) gAttrib;
+    gattAttributes_size = gAttrib_len;
 
     /* Register with stack to receive GATT callback */
     gatt_status = wiced_bt_gatt_register( blehid_gatts_callback );
     if (gatt_status != WICED_BT_SUCCESS)
     {
-        WICED_BT_TRACE( "FAILED: wiced_bt_gatt_register status %d\n", gatt_status );
+        WICED_BT_TRACE("\nFAILED: wiced_bt_gatt_register status %d", gatt_status );
     }
     else
     {
@@ -524,10 +519,10 @@ wiced_bt_gatt_status_t blehid_gatts_init(const uint8_t * gatt_db, uint16_t len, 
         gatt_status = wiced_bt_gatt_db_init( gatt_db, len );
         if (gatt_status != WICED_BT_SUCCESS)
         {
-            WICED_BT_TRACE( "FAILD: wiced_bt_gatt_db_init %d \n", gatt_status );
+            WICED_BT_TRACE("\nFAILD: wiced_bt_gatt_db_init %d", gatt_status );
         }
     }
     return gatt_status;
 }
 
-#endif //ifndef BT_HIDD_ONLY
+#endif //#ifdef BLE_SUPPORT

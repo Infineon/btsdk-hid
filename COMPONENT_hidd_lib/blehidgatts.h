@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Cypress Semiconductor Corporation or a subsidiary of
+ * Copyright 2020, Cypress Semiconductor Corporation or a subsidiary of
  * Cypress Semiconductor Corporation. All Rights Reserved.
  *
  * This software, including source code, documentation and related
@@ -40,12 +40,6 @@
  *                         Type Definitions
  ******************************************************************************/
 
-typedef struct{
-    uint16_t     handle;
-    uint16_t     attr_len;
-    const void * p_attr;
-}attribute_t;
-
 #ifdef OTA_FIRMWARE_UPGRADE
 typedef void (*blehid_ota_fw_upgrade_status_callback_t)(uint8_t status);
 void blehid_register_ota_fw_upgrade_status_callback(blehid_ota_fw_upgrade_status_callback_t);
@@ -58,6 +52,5 @@ typedef void (*wiced_bt_gatt_2nd_link_up_handler_t)( wiced_bt_gatt_connection_st
 extern wiced_bt_gatt_2nd_link_up_handler_t wiced_bt_gatt_2nd_link_up_handler;
 #endif
 
-wiced_bt_gatt_status_t blehid_gatts_init(const uint8_t * gatt_db, uint16_t len, blehid_gatts_req_read_callback_t rd_cb, blehid_gatts_req_write_callback_t wr_cb);
 
 #endif //_BLE_HID_GATTS_H__

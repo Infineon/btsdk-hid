@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Cypress Semiconductor Corporation or a subsidiary of
+ * Copyright 2020, Cypress Semiconductor Corporation or a subsidiary of
  * Cypress Semiconductor Corporation. All Rights Reserved.
  *
  * This software, including source code, documentation and related
@@ -47,6 +47,7 @@
 #include "wiced_timer.h"
 
 #define LINK_SUPERVISION_TIMEOUT_IN_SLOTS   3200
+#define DISCOVERY_TIMEOUT                  60000                  // One minite discovery
 
 #pragma pack(1)
 typedef struct
@@ -188,11 +189,9 @@ typedef struct
     wiced_bt_hidd_link_app_rx_data_callback_t       *p_app_rx_data;
 }wiced_bt_hidd_link_app_callback_t;
 
+/////////////////////////////////////////////////////////////////////////////////////////////
 typedef struct
 {
-    /// bd addr of last connected host
-    BD_ADDR lastConnectedHost;
-
     /// state (enum bthidlink_state_e)
     uint8_t subState;
 
@@ -231,10 +230,6 @@ extern tBtHidLink bt_hidd_link;
 /// Abstract link layer initialize
 /////////////////////////////////////////////////////////////////////////////////////////////
 wiced_bt_hidd_status_t wiced_bt_hidd_init(void);
-
-/////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////
-void wiced_bt_hidd_link_init(void);
 
 /////////////////////////////////////////////////////////////////////////////////
 /// register application callback functions
@@ -315,13 +310,6 @@ void wiced_bt_hidd_link_enter_disconnected(void);
 ////////////////////////////////////////////////////////////////////////////////////
 void wiced_bt_hidd_link_aon_action_handler(uint8_t  type);
 
-/////////////////////////////////////////////////////////////////////////////////
-/// register application sleep permit handler
-///
-/// \param cb - pointer to application callback function
-/////////////////////////////////////////////////////////////////////////////////
-void wiced_bt_hidd_link_register_sleep_permit_handler(wiced_sleep_allow_check_callback sleep_handler);
-
 ////////////////////////////////////////////////////////////////////////////////
 /// This method handles a pin code request from the BT core.
 ///  - INITIALIZED: Impossible. Ignore.
@@ -382,5 +370,11 @@ void bthidlink_pinCode(uint8_t pinCodeSize, uint8_t *pinCodeBuffer);
 ///       of an unsigned interger between 0 and 999999, both inclusive.
 ////////////////////////////////////////////////////////////////////////////////
 void bthidlink_passCode(uint8_t pinCodeSize, uint8_t *pinCodeBuffer);
+
+////////////////////////////////////////////////////////////////////////////////////
+/// bthidlink_setHostAddr
+/////////////////////////////////////////////////////////////////////////////////////////////
+void bthidlink_setHostAddr(const wiced_bt_device_address_t addr);
+
 
 #endif

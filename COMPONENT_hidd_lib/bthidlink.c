@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Cypress Semiconductor Corporation or a subsidiary of
+ * Copyright 2020, Cypress Semiconductor Corporation or a subsidiary of
  * Cypress Semiconductor Corporation. All Rights Reserved.
  *
  * This software, including source code, documentation and related
@@ -40,7 +40,7 @@
 * Functions:
 *
 *******************************************************************************/
-#ifndef LE_HIDD_ONLY
+#ifdef BR_EDR_SUPPORT
 #include "wiced_bt_trace.h"
 #include "wiced_bt_cfg.h"
 #include "wiced_bt_event.h"
@@ -51,13 +51,11 @@
 
 #include "spar_utils.h"
 #include "bthidlink.h"
-#include "bthostlist.h"
+#include "hidd_lib.h"
 
 #ifdef TESTING_USING_HCI
 #include "hci_control_api.h"
 #endif
-
-#define IS_VIRTUALLY_CABLED() (wiced_bt_hidd_host_info_get_number() > 0)
 
 tBtHidLinkCfg wiced_bt_hidlinkcfg =
 {
@@ -101,8 +99,8 @@ tBtHidLinkCfg wiced_bt_hidlinkcfg =
      4
 };
 
+tBtHidLink bt_hidd_link = {};
 
-tBtHidLink bt_hidd_link = {{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 0, };
 wiced_bt_hidd_link_app_callback_t *bthidlink_app_callback = NULL;
 
 
@@ -111,89 +109,42 @@ wiced_bt_hidd_link_app_callback_t *bthidlink_app_callback = NULL;
 //wiced_bool_t bthidlink_pinCodeRequested = WICED_FALSE;
 
 BD_ADDR bthidlink_passkeyreq_bdaddr = {0, };
-wiced_bt_device_link_keys_t  bthidlink_link_keys = {0, };
 
 typedef UINT8 tBTM_STATUS;
 
-void bthidlink_init();
-void bthidlink_determineNextState(void);
 void bthidlink_enterConnectable(void);
 void bthidlink_enterReconnecting(void);
 void bthidlink_statetimerTimeoutCb(uint32_t args);
 
 uint8_t bthidlink_earlyWakeNotification(void* unused);
-uint32_t bthidlink_sleep_handler(wiced_sleep_poll_type_t type );
 void bthidlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t data, wiced_bt_hidd_event_data_t *p_event_data );
 BTM_API extern tBTM_STATUS BTM_WritePageTimeout(UINT16 timeout);
 BTM_API extern tBTM_STATUS BTM_SetPacketTypes (BD_ADDR remote_bda, UINT16 pkt_types);
 
-wiced_bt_hidd_reg_info_t bthidlink_reg_info = {
-    {0xff, 0xff, 0xff, 0xff, 0xff, 0xff},   // host_addr;
-    NULL,                                   // p_qos_info
-    bthidlink_bthidd_evtHandler             // p_app_cback
-};
-
-extern const wiced_bt_cfg_settings_t wiced_bt_hid_cfg_settings;
-
-#ifdef DUAL_MODE_HIDD
-extern wiced_bt_transport_t active_transport;
-#endif
-
-wiced_sleep_config_t    bthidlink_sleep_config = {
-    WICED_SLEEP_MODE_NO_TRANSPORT,  //sleep_mode
-    0,                              //host_wake_mode
-    0,                              //device_wake_mode
-    WICED_SLEEP_WAKE_SOURCE_GPIO | WICED_SLEEP_WAKE_SOURCE_KEYSCAN | WICED_SLEEP_WAKE_SOURCE_QUAD,  //device_wake_source
-    255,                            //must set device_wake_gpio_num to 255 for WICED_SLEEP_MODE_NO_TRANSPORT
-    bthidlink_sleep_handler         //sleep_permit_handler
-};
-wiced_sleep_allow_check_callback bthidlink_registered_app_sleep_handler = NULL;
-
 PLACE_DATA_IN_RETENTION_RAM bthid_aon_save_content_t   bthid_aon_data;
 
+////////////////////////////////////////////////////////////////////////////////////
+/// bthidlink_setHostAddr
 /////////////////////////////////////////////////////////////////////////////////////////////
-/// Abstract link layer initialize
-/////////////////////////////////////////////////////////////////////////////////////////////
-void wiced_bt_hidd_link_init()
+void bthidlink_setHostAddr(const wiced_bt_device_address_t addr)
 {
-    //Setup Battery Service
-    wiced_hal_batmon_init();
+    wiced_bt_hidd_reg_info_t bthidlink_reg_info;
 
-    bthidlink_init();
+    bthidlink_reg_info.p_app_cback = bthidlink_bthidd_evtHandler;
+    memcpy(bthidlink_reg_info.host_addr, addr, BD_ADDR_LEN);
 
-    //configure sleep
-    wiced_sleep_configure( &bthidlink_sleep_config );
+    // clear registered host
+    wiced_bt_hidd_deregister();
 
-    bthidlink_determineNextState();
-
+    //register with hidd
+    wiced_bt_hidd_register(&bthidlink_reg_info);
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 /// bt classic hid link init
 /////////////////////////////////////////////////////////////////////////////////////////////
 void bthidlink_init()
 {
-    uint8_t *host_address;
-
-    //read host information from NVRAM
-    wiced_bt_hidd_host_info_init();
-    if (IS_VIRTUALLY_CABLED())
-    {
-#ifdef DUAL_MODE_HIDD
-        WICED_BT_TRACE("BT_TRANSPORT_BR_EDR!\n");
-        active_transport = BT_TRANSPORT_BR_EDR;
-#endif
-
-        host_address = wiced_bt_hidd_host_info_get_bdaddr_by_index(0);
-        memcpy(bthidlink_reg_info.host_addr, host_address, BD_ADDR_LEN);
-
-        // Save the host address in case we have to connect back
-        memcpy(bt_hidd_link.lastConnectedHost, host_address, BD_ADDR_LEN);
-    }
-
-    //register with hidd
-    wiced_bt_hidd_register(&bthidlink_reg_info);
-
     // app to write EIR data
     if (bthidlink_app_callback && bthidlink_app_callback->p_app_write_eir_data)
     {
@@ -238,13 +189,15 @@ void bthidlink_setState(uint8_t newState)
 
     if(newState != bt_hidd_link.subState)
     {
+        WICED_BT_TRACE("\nBT state changed from %d to %d", bt_hidd_link.subState, newState);
         bt_hidd_link.subState = newState;
 
-#ifdef DUAL_MODE_HIDD
+        hci_control_send_state_change(BT_TRANSPORT_BR_EDR, newState);
+
         //if current active transport is LE, do not notify observer
-        if (active_transport == BT_TRANSPORT_LE)
+        if (wiced_hidd_host_transport() == BT_TRANSPORT_LE)
             return;
-#endif
+
         while(tmpObs)
         {
             if(tmpObs->callback)
@@ -269,9 +222,9 @@ void bthidlink_determineNextState(void)
         wiced_bt_hidd_link_enter_discoverable();
     }
     // Do we have any bonded hosts
-    else if (IS_VIRTUALLY_CABLED())
+    else if (wiced_hidd_is_paired())
     {
-        WICED_BT_TRACE("bonded info in NVRAM\n");
+        WICED_BT_TRACE("\nbonded info in NVRAM");
 #if 0
         // Do we have user activity and are allowed to reconnect?
         if (connectRequestPending && wiced_bt_hidlinkcfg.reconnectInitiate)
@@ -338,12 +291,12 @@ void bthidlink_determineNextState_on_powerup(void)
 {
     if(!wiced_hal_mia_is_reset_reason_por())
     {
-        WICED_BT_TRACE("wake from SDS\n");
+        WICED_BT_TRACE("\nwake from SDS");
         bthidlink_determineNextState_on_wake_from_SDS();
     }
     else
     {
-        WICED_BT_TRACE("cold boot\n");
+        WICED_BT_TRACE("\ncold boot");
         bthidlink_determineNextState();
     }
 
@@ -370,17 +323,17 @@ void wiced_bt_hidd_link_register_app_callback(wiced_bt_hidd_link_app_callback_t 
 ////////////////////////////////////////////////////////////////////////////////
 void bthidlink_enablePageScans(void)
 {
-    WICED_BT_TRACE( "enablePageScans\n");
+    WICED_BT_TRACE("\nenablePageScans");
 #if 0
-    if (BTM_SetPageScanType(wiced_bt_hid_cfg_settings.br_edr_scan_cfg.page_scan_type))
-        WICED_BT_TRACE(" Failed to set page scan type!\n");
+    if (BTM_SetPageScanType(wiced_hidd_cfg()->br_edr_scan_cfg.page_scan_type))
+        WICED_BT_TRACE("\n Failed to set page scan type!");
 #endif
     if (wiced_bt_dev_set_connectability(WICED_TRUE,
-                                        wiced_bt_hid_cfg_settings.br_edr_scan_cfg.page_scan_window,
-                                        wiced_bt_hid_cfg_settings.br_edr_scan_cfg.page_scan_interval))
-        WICED_BT_TRACE(" Failed to set Connectability\n");
+                                        wiced_hidd_cfg()->br_edr_scan_cfg.page_scan_window,
+                                        wiced_hidd_cfg()->br_edr_scan_cfg.page_scan_interval))
+        WICED_BT_TRACE("\n Failed to set Connectability");
     else
-        WICED_BT_TRACE(" wiced_bt_dev_set_connectability %d %d\n", wiced_bt_hid_cfg_settings.br_edr_scan_cfg.page_scan_window, wiced_bt_hid_cfg_settings.br_edr_scan_cfg.page_scan_interval);
+        WICED_BT_TRACE("\n wiced_bt_dev_set_connectability %d %d", wiced_hidd_cfg()->br_edr_scan_cfg.page_scan_window, wiced_hidd_cfg()->br_edr_scan_cfg.page_scan_interval);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -389,17 +342,17 @@ void bthidlink_enablePageScans(void)
 ////////////////////////////////////////////////////////////////////////////////
 void bthidlink_enablePageAndInquiryScans(void)
 {
-    WICED_BT_TRACE( "enablePageAndInquiryScans\n");
+    WICED_BT_TRACE("\nenablePageAndInquiryScans");
 #if 0
-    if (BTM_SetInquiryScanType(wiced_bt_hid_cfg_settings.br_edr_scan_cfg.inquiry_scan_type))
-        WICED_BT_TRACE(" Failed to set inquiry scan type!\n");
+    if (BTM_SetInquiryScanType(wiced_hidd_cfg()->br_edr_scan_cfg.inquiry_scan_type))
+        WICED_BT_TRACE("\n Failed to set inquiry scan type!");
 #endif
     if (wiced_bt_dev_set_discoverability(BTM_GENERAL_DISCOVERABLE, //BTM_LIMITED_DISCOVERABLE doesn't work
-                                    wiced_bt_hid_cfg_settings.br_edr_scan_cfg.inquiry_scan_window,
-                                    wiced_bt_hid_cfg_settings.br_edr_scan_cfg.inquiry_scan_interval))
-        WICED_BT_TRACE(" Failed to set Discoverability\n");
+                                    wiced_hidd_cfg()->br_edr_scan_cfg.inquiry_scan_window,
+                                    wiced_hidd_cfg()->br_edr_scan_cfg.inquiry_scan_interval))
+        WICED_BT_TRACE("\n Failed to set Discoverability");
     else
-        WICED_BT_TRACE(" wiced_bt_dev_set_discoverability inq_scan_win:%d inq_scan_int:%d\n", wiced_bt_hid_cfg_settings.br_edr_scan_cfg.inquiry_scan_window, wiced_bt_hid_cfg_settings.br_edr_scan_cfg.inquiry_scan_interval);
+        WICED_BT_TRACE("\n wiced_bt_dev_set_discoverability inq_scan_win:%d inq_scan_int:%d", wiced_hidd_cfg()->br_edr_scan_cfg.inquiry_scan_window, wiced_hidd_cfg()->br_edr_scan_cfg.inquiry_scan_interval);
 
     bthidlink_enablePageScans();
 
@@ -411,16 +364,16 @@ void bthidlink_enablePageAndInquiryScans(void)
 ////////////////////////////////////////////////////////////////////////////////
 void wiced_bt_hidd_link_disable_page_and_inquiry_scans(void)
 {
-    WICED_BT_TRACE( "disablePageAndInquiryScans\n");
+    WICED_BT_TRACE("\ndisablePageAndInquiryScans");
     if (wiced_bt_dev_set_discoverability( BTM_NON_DISCOVERABLE,
-                                        wiced_bt_hid_cfg_settings.br_edr_scan_cfg.inquiry_scan_window,
-                                        wiced_bt_hid_cfg_settings.br_edr_scan_cfg.inquiry_scan_interval))
-        WICED_BT_TRACE( "Failed to set Discoverability to none\n");
+                                        wiced_hidd_cfg()->br_edr_scan_cfg.inquiry_scan_window,
+                                        wiced_hidd_cfg()->br_edr_scan_cfg.inquiry_scan_interval))
+        WICED_BT_TRACE("\nFailed to set Discoverability to none");
 
     if (wiced_bt_dev_set_connectability( WICED_FALSE,
-                                        wiced_bt_hid_cfg_settings.br_edr_scan_cfg.page_scan_window,
-                                        wiced_bt_hid_cfg_settings.br_edr_scan_cfg.page_scan_interval))
-        WICED_BT_TRACE( "Failed to set Connectability to none\n");
+                                        wiced_hidd_cfg()->br_edr_scan_cfg.page_scan_window,
+                                        wiced_hidd_cfg()->br_edr_scan_cfg.page_scan_interval))
+        WICED_BT_TRACE("\nFailed to set Connectability to none");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -435,7 +388,7 @@ void wiced_bt_hidd_link_disable_page_and_inquiry_scans(void)
 ////////////////////////////////////////////////////////////////////////////////
 void wiced_bt_hidd_link_enter_disconnected(void)
 {
-    WICED_BT_TRACE("enterDisconnected from %d\n", bt_hidd_link.subState );
+//    WICED_BT_TRACE("\nBT: enterDisconnected from state %d", bt_hidd_link.subState );
     wiced_bt_hidd_link_disable_page_and_inquiry_scans();
 
     wiced_stop_timer(&bt_hidd_link.stateTimer);
@@ -454,11 +407,16 @@ void wiced_bt_hidd_link_enter_disconnected(void)
 ////////////////////////////////////////////////////////////////////////////////
 void wiced_bt_hidd_link_enter_discoverable(void)
 {
-    WICED_BT_TRACE(">>enterDiscoverable from %d\n", bt_hidd_link.subState );
+    wiced_bt_device_address_t anyHost = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+
+//    WICED_BT_TRACE("\n>>enterDiscoverable");
     //savedDiscoveryInfoValid = FALSE;
     bthidlink_enablePageAndInquiryScans();
 
+    bthidlink_setHostAddr(anyHost);
+
     bt_hidd_link.becomeDiscoverablePending = 0;
+    wiced_start_timer( &bt_hidd_link.stateTimer, DISCOVERY_TIMEOUT);
     bthidlink_setState(BTHIDLINK_DISCOVERABLE);
 }
 
@@ -474,7 +432,7 @@ void wiced_bt_hidd_link_enter_discoverable(void)
 ////////////////////////////////////////////////////////////////////////////////
 void bthidlink_enterConnectable(void)
 {
-    WICED_BT_TRACE(">>enterConnectable from %d\n", bt_hidd_link.subState );
+//    WICED_BT_TRACE("\n>>enterConnectable from %d", bt_hidd_link.subState );
     wiced_stop_timer(&bt_hidd_link.stateTimer);
     // Disable all scans first and then enabe page scans alone
     wiced_bt_hidd_link_disable_page_and_inquiry_scans();
@@ -493,7 +451,7 @@ void bthidlink_enterConnectable(void)
 ////////////////////////////////////////////////////////////////////////////////
 void bthidlink_enterDisconnecting(void)
 {
-    WICED_BT_TRACE(">>enterDisconnecting from %d\n", bt_hidd_link.subState );
+//    WICED_BT_TRACE("\n>>enterDisconnecting from %d", bt_hidd_link.subState );
     switch(bt_hidd_link.subState)
     {
         case BTHIDLINK_CONNECTED:
@@ -560,7 +518,7 @@ void bthidlink_pageNextHost(void)
     }
 
     // Ensure that the host count is in range
-    if (bt_hidd_link.reconnectHostIndex < wiced_bt_hidd_host_info_get_number())
+    if (bt_hidd_link.reconnectHostIndex < wiced_hidd_host_count())
     {
         // Setup a timer since we are not sure if we have to start connecting immediately or
         // wait for sometime until the stack closes a previous attempt.
@@ -575,15 +533,6 @@ void bthidlink_pageNextHost(void)
             bthidlink_app_callback->p_app_connection_failed_notification();
         }
 
-#if 0
-         // If we ran out of hosts and if we were discoverable before we started paging the
-         // first host then we need to enter the discoverable state again.
-        if ( bthidlink_discoverableStateWhileReconnect )
-        {
-             bt_hidd_link.becomeDiscoverablePending = 1;
-             bthidlink_discoverableStateWhileReconnect = WICED_FALSE;
-        }
-#endif
         // Out of hosts. Figure out what to do
         bthidlink_determineNextState();
     }
@@ -605,8 +554,9 @@ void bthidlink_pageNextHost(void)
 void bthidlink_enterReconnecting(void)
 {
     // If a connect request was pending, reset it - we are trying to connect
-    WICED_BT_TRACE("enterReconnecting :%d\n", bt_hidd_link.subState );
+    WICED_BT_TRACE("\nenterReconnecting :%d", bt_hidd_link.subState );
 
+    bthidlink_setHostAddr(wiced_hidd_host_addr());
     wiced_bt_hidd_link_disable_page_and_inquiry_scans();
 
 #if 0
@@ -623,7 +573,7 @@ void bthidlink_enterReconnecting(void)
     // Update page timeout as we don't know what it is set to
     if (BTM_WritePageTimeout(wiced_bt_hidlinkcfg.reconnectPageTimeout))
     {
-        WICED_BT_TRACE("Failed to write page timeout\n");
+        WICED_BT_TRACE("\nFailed to write page timeout");
     }
 
 
@@ -649,81 +599,23 @@ void bthidlink_enterReconnecting(void)
 ////////////////////////////////////////////////////////////////////////////////
 void bthidlink_enterConnected(const BD_ADDR host_bd_addr)
 {
-    WICED_BT_TRACE(">>bthidlink_enterConnected from %d\n", bt_hidd_link.subState );
-
-#if 0
-    BD_ADDR tmpAddr;
-    uint16_t flags;
-
-    memcpy(tmpAddr, host_bd_addr, sizeof(BD_ADDR));
-    // Update the Host TBFC reconnection Feature flag
-    hostList->updateHostTbfcFeatureFlag(tmpAddr, hiddcfa_readRemoteTBFCFeature(&tmpAddr));
-
-    //Stop the TBFC Scan if it is enabled
-    BTM_BFCWriteScanEnable(FALSE);
-
-    /* register host resume cb function*/
-    BTM_RegResumeRequestCallback(tmpAddr,hostResumeRequestCb,(void*)this);
-
-    /* register host resume not disturb cb function*/
-    BTM_RegNotDisturbRequestCallback(tmpAddr,hostResumeNotDisturbCb,(void*)this);
-
-    /* reset the don't disturb flag*/
-    resumeDoNotDisturbFlag = 0;
-#endif
+//    WICED_BT_TRACE("\n>>bthidlink_enterConnected from %d", bt_hidd_link.subState );
 
     // Stop state timer in case it is running
     //stateTimer->stop();
+
+    // Set as an active hsot
+    hidd_host_setTransport(host_bd_addr, BT_TRANSPORT_BR_EDR);
 
     // Ensure that we are not doing any scans. We no longer want to
     // be discoverable/connectable
     wiced_bt_hidd_link_disable_page_and_inquiry_scans();
 
-    // Save the current host address in case we have to connect back
-    memcpy(bt_hidd_link.lastConnectedHost, host_bd_addr, BD_ADDR_LEN);
-
     // Set packet types we want to use
-    BTM_SetPacketTypes(bt_hidd_link.lastConnectedHost, wiced_bt_hidlinkcfg.packetTypes);
-
-    // Move host to the top
-    wiced_bt_hidd_host_info_move_host_to_top(host_bd_addr);
-
+    BTM_SetPacketTypes((uint8_t*) host_bd_addr, wiced_bt_hidlinkcfg.packetTypes);
 
     // Inform the app of our current state.
     bthidlink_setState(BTHIDLINK_CONNECTED);
-
-#if 0
-    //clear the l2c delay flag
-    flags = hostList->getFlags(hostList->findIndex(bt_hidd_link.lastConnectedHost));
-
-    if(flags & BtPairingList::HOST_WAIT_FOR_HOST_SDP_ENABLED)
-    {
-        // Clear the wait flag if it was set.
-        flags &= ~BtPairingList::HOST_WAIT_FOR_HOST_SDP_ENABLED;
-        hostList->updateFlags(bt_hidd_link.lastConnectedHost,flags);
-    }
-    // Set the automatic flush timeout to max.
-    hiddcfa_setAutomaticFlushTimeoutInStackToMax(&tmpAddr);
-
-    // Register with BTM for link level changes directly with the associated LPM instance
-    BTM_LinkEvtRegister(tmpAddr, linkEvtCallbacks, (UINT32)btLpm);
-
-
-    // Cache the core connection id
-    coreConnId = hiddcfa_getCoreConnIdFromBdAddr(&tmpAddr);
-
-    ASSERT(coreConnId != INVALID_CORE_CONN_ID, "Core conn ID is invalid");
-    MPAF_HIDD_TRACE_T1("enterConnected", flags);
-    // If we have a queued become discoverable request pending enter DISCONNECTING
-    // Once we disconnect, we can honor the request
-    // Also initiate disconnect if coreConnId is invalid
-    if(coreConnId == INVALID_CORE_CONN_ID || bt_hidd_link.becomeDiscoverablePending)
-    {
-        MPAF_HIDD_TRACE_T1("enterConnected - disconnect", savedDiscoveryInfoValid);
-        disconnect();
-    }
-#endif
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -754,11 +646,11 @@ void bthidlink_enterConnected(const BD_ADDR host_bd_addr)
 ////////////////////////////////////////////////////////////////////////////////
 void wiced_bt_hidd_link_connect(void)
 {
-    WICED_BT_TRACE(">>wiced_bt_hidd_link_connect %d\n", bt_hidd_link.subState);
+//    WICED_BT_TRACE("\n>>wiced_bt_hidd_link_connect %d", bt_hidd_link.subState);
     // Not legal in INITIALIZED and CONNECTED states
     if ((bt_hidd_link.subState != BTHIDLINK_INITIALIZED) && (bt_hidd_link.subState != BTHIDLINK_CONNECTED))
     {
-        if (IS_VIRTUALLY_CABLED() && (wiced_bt_hidlinkcfg.reconnectInitiate))
+        if (wiced_hidd_is_paired() && (wiced_bt_hidlinkcfg.reconnectInitiate))
         {
              switch(bt_hidd_link.subState)
             {
@@ -790,7 +682,7 @@ void wiced_bt_hidd_link_connect(void)
 ////////////////////////////////////////////////////////////////////////////////
 void wiced_bt_hidd_link_disconnect(void)
 {
-    WICED_BT_TRACE(">>disconnect from %d\n", bt_hidd_link.subState );
+//    WICED_BT_TRACE("\n>>disconnect from %d", bt_hidd_link.subState );
 
     // Ignore in INITIALIZEDstates
     if (bt_hidd_link.subState != BTHIDLINK_INITIALIZED)
@@ -818,7 +710,7 @@ void wiced_bt_hidd_link_disconnect(void)
 ////////////////////////////////////////////////////////////////////////////////
 void bthidlink_connectInd(const BD_ADDR host_bd_addr)
 {
-    WICED_BT_TRACE("bthidlink_connectInd from %d\n", bt_hidd_link.subState );
+    WICED_BT_TRACE("\nbthidlink_connectInd from %d", bt_hidd_link.subState );
 
     // Ignore in INITIALIZED/RESET states
     if (bt_hidd_link.subState != BTHIDLINK_INITIALIZED)
@@ -839,25 +731,6 @@ void bthidlink_connectInd(const BD_ADDR host_bd_addr)
             case BTHIDLINK_DISCOVERABLE:
                 // Flag that this is the first connection out of DISCOVERABLE
                 //bthidlink_firstConnAfterDiscoverable = WICED_TRUE;
-
-                // If the host is not in our list, we need to add it
-                if (wiced_bt_hidd_host_info_find_index(host_bd_addr) == 0xFF)
-                {
-                    // We have to add it. Check if established a link key with this
-                    // host earlier.
-                    if (!memcmp(host_bd_addr, bthidlink_link_keys.bd_addr, BD_ADDR_LEN))
-                    {
-                        WICED_BT_TRACE("Add new host with link key\n");
-                        // Yes. Save the BD address along with the link key
-                        wiced_bt_hidd_host_info_add_host_at_top(host_bd_addr, &bthidlink_link_keys, 0);
-                    }
-                    else
-                    {
-                        WICED_BT_TRACE("Add host w/o link key\n");
-                        // Save the host without a link key as we don't have any
-                        wiced_bt_hidd_host_info_add_host_at_top(host_bd_addr, NULL, 0);
-                    }
-                }
 
                 // Enter connected state
                 bthidlink_enterConnected(host_bd_addr);
@@ -919,7 +792,7 @@ wiced_bool_t wiced_bt_hidd_link_is_discoverable(void)
 ////////////////////////////////////////////////////////////////////////////////
 void bthidlink_disconnectInd(uint16_t reason)
 {
-    WICED_BT_TRACE("bthidlink_disconnectInd %d\n", bt_hidd_link.subState);
+    WICED_BT_TRACE("\nbthidlink_disconnectInd %d", bt_hidd_link.subState);
 #if 0
     // Clear auto-pairing flag. It does not last across connecttions
     autoPairingRequested = FALSE;
@@ -941,44 +814,14 @@ void bthidlink_disconnectInd(uint16_t reason)
             // Not possible
             break;
         case BTHIDLINK_DISCOVERABLE:
-            WICED_BT_TRACE("BTHIDLINK_DISCOVERABLE: %d",reason );
+            WICED_BT_TRACE("\nBTHIDLINK_DISCOVERABLE: %d",reason );
             if ((reason == HCI_ERR_AUTH_FAILURE) && wiced_bt_hidlinkcfg.exitDiscoverableOnAuthFailure)
             {
                 bthidlink_determineNextState();
             }
             break;
         case BTHIDLINK_CONNECTED:
-#if 0
-            // Check if
-            // (a) this is an auth failure after the first connection
-            //     (or any type of disconnect while in pin code entry mode)
-            // (b) we are configured to become discoverable in such a situation
-            if  (bthidlink_firstConnAfterDiscoverable &&
-                 (reason == HCI_ERR_AUTH_FAILURE || pinCodeRequested) &&
-                 btHidTransportConfig.reenterDiscoverableOnFirstConnectAuthFailure)
-            {
-                // We are. Remove the last host as we never really paired with it.
-                wiced_bt_hidd_host_info_remove_host(bt_hidd_link.lastConnectedHost);
-
-                // Become discoverable
-                wiced_bt_hidd_link_enter_discoverable();
-            }
-            else
-
-            if ((reason == btHidTransportConfig.abnormalDisconnectReasons[0]) ||
-                     (reason == btHidTransportConfig.abnormalDisconnectReasons[1]) ||
-                     (reason == btHidTransportConfig.abnormalDisconnectReasons[2]) ||
-                     (reason == btHidTransportConfig.abnormalDisconnectReasons[3]) ||
-                     (reason == btHidTransportConfig.abnormalDisconnectReasons[4]))
-            {
-                enterReconnectToLastHost();
-            }
-            else
-#endif
-
-            {
-                bthidlink_determineNextState();
-            }
+            bthidlink_determineNextState();
             break;
 
         case BTHIDLINK_DISCONNECTING:
@@ -988,9 +831,9 @@ void bthidlink_disconnectInd(uint16_t reason)
             // If host lost/removed the link key
             if (bt_hidd_link.security_failed == HCI_ERR_KEY_MISSING)
             {
-                WICED_BT_TRACE("remove paired host: %B\n", bt_hidd_link.lastConnectedHost);
-                wiced_bt_hidd_host_info_remove_host(bt_hidd_link.lastConnectedHost);
-                wiced_bt_dev_delete_bonded_device(bt_hidd_link.lastConnectedHost);
+                WICED_BT_TRACE("\nremove paired host: %B", wiced_hidd_host_addr());
+                wiced_bt_dev_delete_bonded_device(wiced_hidd_host_addr());
+                wiced_hidd_host_remove();
             }
 
             // see if we can connect to the next host..
@@ -999,7 +842,7 @@ void bthidlink_disconnectInd(uint16_t reason)
     }
 
     //reset link encrypted flag
-    if (!memcmp(bt_hidd_link.lastConnectedHost, bt_hidd_link.encrypt_status.bdAddr, BD_ADDR_LEN))
+    if (!memcmp(wiced_hidd_host_addr(), bt_hidd_link.encrypt_status.bdAddr, BD_ADDR_LEN))
     {
         bt_hidd_link.encrypt_status.encrypted = WICED_FALSE;
     }
@@ -1022,32 +865,27 @@ void bthidlink_disconnectInd(uint16_t reason)
 wiced_bool_t wiced_bt_hidd_link_virtual_cable_unplug(void)
 {
     wiced_bool_t sentVcUnplug = WICED_FALSE;
-    BD_ADDR invalid_bdaddr = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-    WICED_BT_TRACE("wiced_bt_hidd_link_virtual_cable_unplug\n");
+    WICED_BT_TRACE("\nwiced_bt_hidd_link_virtual_cable_unplug");
 
     //must pause power managment. i.e. stop transition between active, sniff, sniff subrate etc.
     //so that it won't' interfere with device vc unplug
-    wiced_bt_hidd_power_management_pause();
+//    wiced_bt_hidd_power_management_pause();
 
     // Remove current/last connected host from the pairing list and WICED btstack
-    if (IS_VIRTUALLY_CABLED())
+    if (wiced_hidd_is_paired())
     {
-        WICED_BT_TRACE("wiced_bt_hidd_link_virtual_cable_unplug from %B\n", bt_hidd_link.lastConnectedHost);
+        WICED_BT_TRACE("\nwiced_bt_hidd_link_virtual_cable_unplug from %B", wiced_hidd_host_addr());
 
-        wiced_bt_hidd_host_info_remove_host(bt_hidd_link.lastConnectedHost);
-        wiced_bt_dev_delete_bonded_device(bt_hidd_link.lastConnectedHost);
+        wiced_bt_dev_delete_bonded_device(wiced_hidd_host_addr());
+        wiced_hidd_host_remove();
 
         // virtual cable unplug
         sentVcUnplug = wiced_bt_hidd_virtual_unplug() ? WICED_FALSE : WICED_TRUE;
-
-#ifdef DUAL_MODE_HIDD
-        active_transport = 0;
-#endif
     }
     else
     {
-        WICED_BT_TRACE("not bt virtual cable connected\n");
+        WICED_BT_TRACE("\nnot bt virtual cable connected");
     }
 
     // disable page scan and inquiry scan anyway */
@@ -1059,16 +897,6 @@ wiced_bool_t wiced_bt_hidd_link_virtual_cable_unplug(void)
     //We will deregister HIDD without waiting the result of the HIDD Disconnection above.
     //Call wiced_bt_hidd_init to reset HIDD state.
     wiced_bt_hidd_init();
-
-    // deregister with HIDD and send new registration accepting connections from all devices
-    wiced_bt_hidd_deregister( );
-
-    //reset host_addr and lastConnectedHost
-    memset(bthidlink_reg_info.host_addr, 0xff, BD_ADDR_LEN);
-    memset(bt_hidd_link.lastConnectedHost, 0xff, BD_ADDR_LEN);
-
-    //register with hidd
-    wiced_bt_hidd_register(&bthidlink_reg_info);
 
     bthidlink_setState(BTHIDLINK_DISCONNECTED);
 
@@ -1212,7 +1040,7 @@ void bthidlink_passCode(uint8_t pinCodeSize, uint8_t *pinCodeBuffer)
             {
               passkey = passkey * 10 + pinCodeBuffer[i] - '0';
             }
-            WICED_BT_TRACE("passkey: %d\n",passkey);
+            WICED_BT_TRACE("\npasskey: %d",passkey);
 
             // Now pass the pass key to BTM.
             wiced_bt_dev_pass_key_req_reply(WICED_BT_SUCCESS, bthidlink_passkeyreq_bdaddr, passkey);
@@ -1314,7 +1142,7 @@ void bthidlink_statetimerTimeoutCb(uint32_t args)
     // This timer is for initiating a connect, initiating a disconnect and time for which we are going to be discoverable.
     // Since we will never be in DISCOVERABLE state and RECONNECTING states at the same time,  it is safe to use the same timer.
     // If our substate is RECONNECTING, this timer MUST have been started by one of connect and friends.
-    WICED_BT_TRACE("bthidlink_statetimerTimeoutCb\n",bt_hidd_link.subState );
+    WICED_BT_TRACE("\nbthidlink_statetimerTimeoutCb %d",bt_hidd_link.subState );
     switch(bt_hidd_link.subState)
     {
         case BTHIDLINK_RECONNECTING:
@@ -1322,6 +1150,7 @@ void bthidlink_statetimerTimeoutCb(uint32_t args)
             break;
 
         case BTHIDLINK_DISCOVERABLE:
+            wiced_hidd_pairing_stopped(BT_TRANSPORT_BR_EDR);
             wiced_bt_hidd_link_disconnect();
             break;
 
@@ -1377,71 +1206,11 @@ void wiced_bt_hidd_link_enable_poll_callback(wiced_bool_t enable)
     return;
   }
 
-  WICED_BT_TRACE("enableAppPoll:%d\n", enable);
+  WICED_BT_TRACE("\nenableAppPoll:%d", enable);
   bt_hidd_link.appPoll_enabled = enable;
 
-  wiced_hidd_register_callback_for_poll_event(BT_TRANSPORT_BR_EDR, bt_hidd_link.lastConnectedHost, enable, bthidlink_sniffNotification);
+  wiced_hidd_register_callback_for_poll_event(BT_TRANSPORT_BR_EDR, wiced_hidd_host_addr(), enable, bthidlink_sniffNotification);
 }
-
-/////////////////////////////////////////////////////////////////////////////////
-/// register application sleep permit handler
-///
-/// \param cb - pointer to application callback function
-/////////////////////////////////////////////////////////////////////////////////
-void wiced_bt_hidd_link_register_sleep_permit_handler(wiced_sleep_allow_check_callback sleep_handler)
-{
-    bthidlink_registered_app_sleep_handler = sleep_handler;
-}
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// Sleep permit query to check if sleep (normal or SDS) is allowed and sleep time
-///
-/// \param type - sleep poll type
-///
-/// \return   sleep permission or sleep time, depending on input param
-////////////////////////////////////////////////////////////////////////////////////////////////////////////
-uint32_t bthidlink_sleep_handler(wiced_sleep_poll_type_t type )
-{
-    uint32_t ret = WICED_SLEEP_NOT_ALLOWED;
-
-    switch(type)
-    {
-        case WICED_SLEEP_POLL_TIME_TO_SLEEP:
-            ret = WICED_SLEEP_MAX_TIME_TO_SLEEP;
-
-            //query application for sleep time
-            if (bthidlink_registered_app_sleep_handler)
-                ret = bthidlink_registered_app_sleep_handler(type);
-
-            break;
-
-        case WICED_SLEEP_POLL_SLEEP_PERMISSION:
-            ret = WICED_SLEEP_ALLOWED_WITH_SHUTDOWN;
-
-            //query application for sleep permit first
-            if (bthidlink_registered_app_sleep_handler)
-                ret = bthidlink_registered_app_sleep_handler(type);
-
-            if (wiced_hidd_is_transport_detection_polling_on())
-                ret = WICED_SLEEP_ALLOWED_WITHOUT_SHUTDOWN;
-
-            //due to sniff+SDS is not supported in core FW, at this time, only allow SDS when disconnected
-            if (bt_hidd_link.subState != BTHIDLINK_DISCONNECTED)
-                ret = WICED_SLEEP_ALLOWED_WITHOUT_SHUTDOWN;
-
-            //save to AON before entering SDS
-            if (ret == WICED_SLEEP_ALLOWED_WITH_SHUTDOWN)
-            {
-                wiced_bt_hidd_link_aon_action_handler(BTHIDLINK_SAVE_TO_AON);
-            }
-            break;
-
-    }
-
-    return ret;
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////////
 /// save/restore contents to/from Always On Memory when entering/exiting SDS
@@ -1452,7 +1221,7 @@ void wiced_bt_hidd_link_aon_action_handler(uint8_t  type)
 {
     if (type == BTHIDLINK_RESTORE_FROM_AON)
     {
-        WICED_BT_TRACE("WICED_BT_AON_DRIVER_RESTORE\n");
+        WICED_BT_TRACE("\nWICED_BT_AON_DRIVER_RESTORE");
 
         bt_hidd_link.resumeState = bthid_aon_data.bthidlink_state;
     }
@@ -1469,46 +1238,41 @@ void wiced_bt_hidd_link_aon_action_handler(uint8_t  type)
 void bthidlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t data, wiced_bt_hidd_event_data_t *p_event_data )
 {
     uint8_t status = HID_PAR_HANDSHAKE_RSP_ERR_UNSUPPORTED_REQ;
+    WICED_BT_TRACE("\nEVENT: WICED_BT_HIDD_EVT_");
     switch (event)
     {
     case WICED_BT_HIDD_EVT_OPEN:
-#ifdef DUAL_MODE_HIDD
-        active_transport = BT_TRANSPORT_BR_EDR;
+        WICED_BT_TRACE("OPEN: %B", p_event_data->host_bdaddr);
+#ifdef BLE_SUPPORT
         wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
 #endif
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_OPEN: %B\n", p_event_data->host_bdaddr);
         bthidlink_connectInd(p_event_data->host_bdaddr);
-
-#ifdef TESTING_USING_HCI
-        wiced_transport_send_data( HCI_CONTROL_HIDD_EVENT_OPENED, NULL, 0 );
-#endif
+        hci_control_send_data( HCI_CONTROL_HIDD_EVENT_OPENED, p_event_data->host_bdaddr, BD_ADDR_LEN );
         break;
 
     case WICED_BT_HIDD_EVT_CLOSE:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_CLOSE reason:%d\n",data);
+        WICED_BT_TRACE("CLOSE: reason:%d",data);
         bthidlink_disconnectInd(data);
-#ifdef TESTING_USING_HCI
         status = (uint8_t) data;
-        wiced_transport_send_data( HCI_CONTROL_HIDD_EVENT_CLOSED, &status, 1 );
-#endif
+        hci_control_send_data( HCI_CONTROL_HIDD_EVENT_CLOSED, &status, 1 );
         break;
 
     case WICED_BT_HIDD_EVT_MODE_CHG:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_MODE_CHG, mode=%d, interval=%d\n", data, p_event_data->pm_interval);
+        WICED_BT_TRACE("MODE_CHG: mode=%d, interval=%d", data, p_event_data->pm_interval);
         break;
 
     case WICED_BT_HIDD_EVT_PM_FAILED:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_PM_FAILED, mode=%d, error_code=%d\n", data, p_event_data->pm_err_code);
+        WICED_BT_TRACE("PM_FAILED: mode=%d, error_code=%d", data, p_event_data->pm_err_code);
         break;
 
     case WICED_BT_HIDD_EVT_CONTROL:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_CONTROL: param=%d\n", data);
+        WICED_BT_TRACE("CONTROL: param=%d", data);
         if (data == HID_PAR_CONTROL_VIRTUAL_CABLE_UNPLUG)
         {
             // Remove current/last connected host from the list
-            wiced_bt_hidd_host_info_remove_host(bt_hidd_link.lastConnectedHost);
-            WICED_BT_TRACE("remove bonded device : %B\n", bt_hidd_link.lastConnectedHost);
-            wiced_bt_dev_delete_bonded_device(bt_hidd_link.lastConnectedHost);
+            WICED_BT_TRACE("\nremove bonded device : %B", wiced_hidd_host_addr());
+            wiced_bt_dev_delete_bonded_device(wiced_hidd_host_addr());
+            wiced_hidd_host_remove();
 
             //if vc unplug from host, it will eventually disconnect.
             //if we don't want to enter discoverable right afterwards, set this flag to 0.
@@ -1518,7 +1282,7 @@ void bthidlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t da
         break;
 
     case WICED_BT_HIDD_EVT_GET_REPORT:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_GET_REPORT: data=%d\n, reportID=%d, reportType=%d", data, p_event_data->get_rep.rep_id, p_event_data->get_rep.rep_type);
+        WICED_BT_TRACE("GET_REPORT: data=%d\n, reportID=%d, reportType=%d", data, p_event_data->get_rep.rep_id, p_event_data->get_rep.rep_type);
         if (bthidlink_app_callback && bthidlink_app_callback->p_app_get_report)
         {
             status = bthidlink_app_callback->p_app_get_report(p_event_data->get_rep.rep_type, p_event_data->get_rep.rep_id);
@@ -1531,8 +1295,8 @@ void bthidlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t da
         break;
 
     case WICED_BT_HIDD_EVT_SET_REPORT:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_SET_REPORT: data=%d, len=%d ", data, p_event_data->data.len);
-        wiced_trace_array(p_event_data->data.p_data, p_event_data->data.len);
+        WICED_BT_TRACE("SET_REPORT: data=%d, len=%d \n", data, p_event_data->data.len);
+        TRACE_ARRAY(p_event_data->data.p_data, p_event_data->data.len);
 
         if (bthidlink_app_callback && bthidlink_app_callback->p_app_set_report)
         {
@@ -1542,7 +1306,7 @@ void bthidlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t da
         break;
 
     case WICED_BT_HIDD_EVT_GET_PROTO:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_GET_PROTO\n");
+        WICED_BT_TRACE("GET_PROTO:");
         if (bthidlink_app_callback && bthidlink_app_callback->p_app_get_protocol)
         {
             uint8_t protocol = bthidlink_app_callback->p_app_get_protocol();
@@ -1556,7 +1320,7 @@ void bthidlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t da
         break;
 
     case WICED_BT_HIDD_EVT_SET_PROTO:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_SET_PROTO:%d\n", data);
+        WICED_BT_TRACE("SET_PROTO: %d", data);
         if (bthidlink_app_callback && bthidlink_app_callback->p_app_set_protocol)
         {
             status = bthidlink_app_callback->p_app_set_protocol(data);
@@ -1565,7 +1329,7 @@ void bthidlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t da
         break;
 
     case WICED_BT_HIDD_EVT_GET_IDLE:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_GET_IDLE\n");
+        WICED_BT_TRACE("GET_IDLE");
         if (bthidlink_app_callback && bthidlink_app_callback->p_app_get_idle)
         {
             uint8_t idlerate = bthidlink_app_callback->p_app_get_idle();
@@ -1578,7 +1342,7 @@ void bthidlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t da
         break;
 
     case WICED_BT_HIDD_EVT_SET_IDLE:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_SET_IDLE: data=%d\n", data);
+        WICED_BT_TRACE("SET_IDLE: data=%d", data);
         if (bthidlink_app_callback && bthidlink_app_callback->p_app_set_idle)
         {
             status = bthidlink_app_callback->p_app_set_idle(data);
@@ -1587,18 +1351,22 @@ void bthidlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t da
         break;
 
     case WICED_BT_HIDD_EVT_DATA:
-        WICED_BT_TRACE("EVENT: WICED_BT_HIDD_EVT_DATA: data=%d, len=%d ", data, p_event_data->data.len);
-        wiced_trace_array(p_event_data->data.p_data, p_event_data->data.len);
+        WICED_BT_TRACE("DATA: len=%d data=", p_event_data->data.len);
+        TRACE_ARRAY(p_event_data->data.p_data, p_event_data->data.len);
         if (bthidlink_app_callback && bthidlink_app_callback->p_app_rx_data)
         {
             bthidlink_app_callback->p_app_rx_data(data, p_event_data->data.p_data, p_event_data->data.len);
         }
         break;
 
+    case WICED_BT_HIDD_EVT_RETRYING:
+        WICED_BT_TRACE("RETRYING: Repage timeout, retrial=%d", data);
+        break;
+
     default:
-        WICED_BT_TRACE("EVENT: unsupported bthidlink_bthidd_evtHandler evt: %d!!!\n", event);
+        WICED_BT_TRACE(": unsupported evt:%d data=%d", event, data);
         break;
     }
 }
 
-#endif //#ifndef LE_HIDD_ONLY
+#endif //#ifdef BR_EDR_SUPPORT

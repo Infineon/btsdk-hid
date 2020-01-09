@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Cypress Semiconductor Corporation or a subsidiary of
+ * Copyright 2020, Cypress Semiconductor Corporation or a subsidiary of
  * Cypress Semiconductor Corporation. All Rights Reserved.
  *
  * This software, including source code, documentation and related
@@ -360,39 +360,39 @@ void micAudio_startAudio()
 
 #if AUDIO_DEBUG_ENABLE
     //ADC Register Dump
-    WICED_BT_TRACE("mia_adc_intf_ctl_adr %08x   ", REG32(mia_adc_intf_ctl_adr));
-    WICED_BT_TRACE("adc_dma_ctl0_adr %08x   ", REG32(adc_dma_ctl0_adr));
-    WICED_BT_TRACE("adc_dma_ctl1_adr %08x   ", REG32(adc_dma_ctl1_adr));
-    WICED_BT_TRACE("lhl_adc_ctl_adr %08x    ", REG32(lhl_adc_ctl_adr));
-    WICED_BT_TRACE("mia_adc_ctl0_adr %08x   ", REG32(mia_adc_ctl0_adr));
-    WICED_BT_TRACE("adc_api_ctl0_adr %08x   ", REG32(adc_api_ctl0_adr));
-    WICED_BT_TRACE("adc_api_ctl1_adr %08x   ", REG32(adc_api_ctl1_adr));
-    WICED_BT_TRACE("adc_api_ctl2_adr %08x   ", REG32(adc_api_ctl2_adr));
-    WICED_BT_TRACE("adc_api_ctl3_adr %08x   ", REG32(adc_api_ctl3_adr));
-    WICED_BT_TRACE("adc_api_ctl4_adr %08x   ", REG32(adc_api_ctl4_adr));
-    WICED_BT_TRACE("adc_filter_ctl0_adr %08x    ", REG32(adc_filter_ctl0_adr));
-    WICED_BT_TRACE("adc_filter_ctl1_adr %08x    ", REG32(adc_filter_ctl1_adr));
-    WICED_BT_TRACE("adc_filter_ctl2_adr %08x    ", REG32(adc_filter_ctl2_adr));
-    WICED_BT_TRACE("adc_filter_ctl3_adr %08x    ", REG32(adc_filter_ctl3_adr));
-    WICED_BT_TRACE("adc_filter_ctl4_adr %08x    ", REG32(adc_filter_ctl4_adr));
-    WICED_BT_TRACE("adc_filter_ctl5_adr %08x    ", REG32(adc_filter_ctl5_adr));
-    WICED_BT_TRACE("adc_filter_ctl6_adr %08x    ", REG32(adc_filter_ctl6_adr));
-    WICED_BT_TRACE("adc_filter_ctl7_adr %08x    ", REG32(adc_filter_ctl7_adr));
-    WICED_BT_TRACE("adc_filter_ctl8_adr %08x    ", REG32(adc_filter_ctl8_adr));
-    WICED_BT_TRACE("adc_filter_ctl9_adr %08x    ", REG32(adc_filter_ctl9_adr));
-    WICED_BT_TRACE("adc_filter_ctlA_adr %08x    ", REG32(adc_filter_ctlA_adr));
-    WICED_BT_TRACE("adc_filter_ctlB_adr %08x    ", REG32(adc_filter_ctlB_adr));
-    WICED_BT_TRACE("adc_filter_ctlC_adr %08x    ", REG32(adc_filter_ctlC_adr));
-    WICED_BT_TRACE("adc_filter_ctlD_adr %08x    ", REG32(adc_filter_ctlD_adr));
-    WICED_BT_TRACE("adc_filter_ctlE_adr %08x    ", REG32(adc_filter_ctlE_adr));
-    WICED_BT_TRACE("adc_filter_ctlF_adr %08x    ", REG32(adc_filter_ctlF_adr));
-    WICED_BT_TRACE("mia_adc_intf_ctl2_adr %08x  ", REG32(mia_adc_intf_ctl2_adr));
-    WICED_BT_TRACE("mia_adc_ctl2_adr %08x   ", REG32(mia_adc_ctl2_adr));
-    WICED_BT_TRACE("mia_adc_ctl1_adr %08x   ", REG32(mia_adc_ctl1_adr));
+    WICED_BT_TRACE("\nmia_adc_intf_ctl_adr %08x", REG32(mia_adc_intf_ctl_adr));
+    WICED_BT_TRACE("\nadc_dma_ctl0_adr %08x", REG32(adc_dma_ctl0_adr));
+    WICED_BT_TRACE("\nadc_dma_ctl1_adr %08x", REG32(adc_dma_ctl1_adr));
+    WICED_BT_TRACE("\nlhl_adc_ctl_adr %08x", REG32(lhl_adc_ctl_adr));
+    WICED_BT_TRACE("\nmia_adc_ctl0_adr %08x", REG32(mia_adc_ctl0_adr));
+    WICED_BT_TRACE("\nadc_api_ctl0_adr %08x", REG32(adc_api_ctl0_adr));
+    WICED_BT_TRACE("\nadc_api_ctl1_adr %08x", REG32(adc_api_ctl1_adr));
+    WICED_BT_TRACE("\nadc_api_ctl2_adr %08x", REG32(adc_api_ctl2_adr));
+    WICED_BT_TRACE("\nadc_api_ctl3_adr %08x", REG32(adc_api_ctl3_adr));
+    WICED_BT_TRACE("\nadc_api_ctl4_adr %08x", REG32(adc_api_ctl4_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl0_adr %08x", REG32(adc_filter_ctl0_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl1_adr %08x", REG32(adc_filter_ctl1_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl2_adr %08x", REG32(adc_filter_ctl2_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl3_adr %08x", REG32(adc_filter_ctl3_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl4_adr %08x", REG32(adc_filter_ctl4_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl5_adr %08x", REG32(adc_filter_ctl5_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl6_adr %08x", REG32(adc_filter_ctl6_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl7_adr %08x", REG32(adc_filter_ctl7_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl8_adr %08x", REG32(adc_filter_ctl8_adr));
+    WICED_BT_TRACE("\nadc_filter_ctl9_adr %08x", REG32(adc_filter_ctl9_adr));
+    WICED_BT_TRACE("\nadc_filter_ctlA_adr %08x", REG32(adc_filter_ctlA_adr));
+    WICED_BT_TRACE("\nadc_filter_ctlB_adr %08x", REG32(adc_filter_ctlB_adr));
+    WICED_BT_TRACE("\nadc_filter_ctlC_adr %08x", REG32(adc_filter_ctlC_adr));
+    WICED_BT_TRACE("\nadc_filter_ctlD_adr %08x", REG32(adc_filter_ctlD_adr));
+    WICED_BT_TRACE("\nadc_filter_ctlE_adr %08x", REG32(adc_filter_ctlE_adr));
+    WICED_BT_TRACE("\nadc_filter_ctlF_adr %08x", REG32(adc_filter_ctlF_adr));
+    WICED_BT_TRACE("\nmia_adc_intf_ctl2_adr %08x", REG32(mia_adc_intf_ctl2_adr));
+    WICED_BT_TRACE("\nmia_adc_ctl2_adr %08x", REG32(mia_adc_ctl2_adr));
+    WICED_BT_TRACE("\nmia_adc_ctl1_adr %08x", REG32(mia_adc_ctl1_adr));
 
-    WICED_BT_TRACE("cr_pulse_reset_peri %08x    ", cr_pulse_reset_peri);
-    WICED_BT_TRACE("cr_mia_clk_cfg_adr %08x ", REG32(cr_mia_clk_cfg_adr));
-    WICED_BT_TRACE("micAudio_startAudio \n");
+    WICED_BT_TRACE("\ncr_pulse_reset_peri %08x", cr_pulse_reset_peri);
+    WICED_BT_TRACE("\ncr_mia_clk_cfg_adr %08x", REG32(cr_mia_clk_cfg_adr));
+    WICED_BT_TRACE("\nmicAudio_startAudio");
 #endif
 }
 
@@ -407,7 +407,7 @@ void micAudio_startAudio()
 ///////////////////////////////////////////////////////////////////////////////
 uint8_t wiced_hidd_mic_audio_poll_activity(void * dataPtr)
 {
-    //WICED_BT_TRACE("micAudio_pollActivityUser ");
+    //WICED_BT_TRACE("\nmicAudio_pollActivityUser");
 
     if (micAudioDriver.active == 1)
     {
@@ -527,7 +527,7 @@ void micAudio_micAudioCallback(UINT8 *audioData, UINT32 receivedLength, UINT32 a
                 //Dump the audio data to the UART
                 for(index = 0; index < (AUDIO_DUMP_SIZE-400); index++)
                 {
-                    WICED_BT_TRACE("%04X ", audioDump[index]);
+                    WICED_BT_TRACE("\n%04X", audioDump[index]);
                 }
 
                 audioDumpIndex = 0;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Cypress Semiconductor Corporation or a subsidiary of
+ * Copyright 2020, Cypress Semiconductor Corporation or a subsidiary of
  * Cypress Semiconductor Corporation. All Rights Reserved.
  *
  * This software, including source code, documentation and related
@@ -39,6 +39,7 @@
 * Functions:
 *
 *******************************************************************************/
+#ifdef BLE_SUPPORT
 #ifndef __BLE_HID_TRANSPORT__
 #define __BLE_HID_TRANSPORT__
 
@@ -89,6 +90,8 @@ typedef struct
 #endif
 } blehid_aon_save_content_t;
 
+extern uint16_t  blehostlist_flags;
+extern wiced_bt_ble_advert_mode_t app_adv_mode;
 
 enum blehidlink_state_e
 {
@@ -188,9 +191,6 @@ typedef struct
     ///prefered connection parameters. Index see enum blehidlink_conn_param_index_e
     uint16_t prefered_conn_params[4];
 
-    /// is shutdown sleep (SDS) allowed?
-    uint8_t allowSDS;
-
     /// state (enum blehidlink_state_e)
     uint8_t subState;
 
@@ -208,9 +208,6 @@ typedef struct
 
      ///connection idle timer (osapi timer that can be supported in uBCS mode)
     OSAPI_TIMER conn_idle_timer;
-
-    /// allow SDS timer
-    wiced_timer_t allowSDS_timer;
 
     /// auto reconnect timer
     wiced_timer_t reconnect_timer;
@@ -284,12 +281,10 @@ typedef struct
 } tBleHidLink;
 
 extern tBleHidLink ble_hidd_link;
-extern const wiced_bt_cfg_settings_t * wiced_bt_hid_cfg_settings_ptr;
 
-/////////////////////////////////////////////////////////////////////////////////////////////
-/// Abstract link layer initialize
-/////////////////////////////////////////////////////////////////////////////////////////////
-void wiced_ble_hidd_link_init(void);
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+wiced_bool_t wiced_ble_hidd_link_conn_param_updated();
 
 /////////////////////////////////////////////////////////////////////////////////
 /// send HID report as GATT notification
@@ -398,6 +393,12 @@ void wiced_ble_hidd_link_set_connection_Idle_timeout_value(uint16_t value);
 void wiced_ble_hidd_link_directed_adv_stop(void);
 
 /////////////////////////////////////////////////////////////////////////////////////////////
+/// ble hidd link get current advertizing mode
+/////////////////////////////////////////////////////////////////////////////////////////////
+wiced_bt_ble_advert_mode_t wiced_ble_hidd_link_get_adv_mode(void);
+#define wiced_ble_hidd_link_is_advertizing() (wiced_ble_hidd_link_get_adv_mode() != BTM_BLE_ADVERT_OFF)
+
+/////////////////////////////////////////////////////////////////////////////////////////////
 /// Notified ble hidd link that LE advertising (except high duty cycle directed adv) stops
 /////////////////////////////////////////////////////////////////////////////////////////////
 void wiced_ble_hidd_link_adv_stop(void);
@@ -412,22 +413,5 @@ void wiced_ble_hidd_link_connected(void);
 /////////////////////////////////////////////////////////////////////////////////////////////
 void wiced_ble_hidd_link_disconnected(void);
 
-/////////////////////////////////////////////////////////////////////////////////
-/// register application sleep permit handler
-///
-/// \param cb - pointer to application callback function
-/////////////////////////////////////////////////////////////////////////////////
-void wiced_ble_hidd_link_register_sleep_permit_handler(wiced_sleep_allow_check_callback sleep_handler);
-
-/////////////////////////////////////////////////////////////////////////////////
-/// wiced_ble_hidd_start
-///
-/// \param p_bt_management_cback  - application bt_management callback function
-///        p_bt_cfg_settings      - bt configuration setting
-///        wiced_bt_cfg_buf_pools - buffer pool configuration
-/////////////////////////////////////////////////////////////////////////////////
-void wiced_ble_hidd_start(const char * appName, wiced_result_t (*p_bt_app_init)(),
-                          wiced_bt_management_cback_t   * p_bt_management_cback,
-                          const wiced_bt_cfg_settings_t * p_bt_cfg_settings,
-                          const wiced_bt_cfg_buf_pool_t * p_bt_cfg_buf_pools);
+#endif
 #endif

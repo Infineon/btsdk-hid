@@ -1,5 +1,5 @@
 /*
- * Copyright 2019, Cypress Semiconductor Corporation or a subsidiary of
+ * Copyright 2020, Cypress Semiconductor Corporation or a subsidiary of
  * Cypress Semiconductor Corporation. All Rights Reserved.
  *
  * This software, including source code, documentation and related
@@ -45,28 +45,28 @@
 * The (default) microphone uses on-chip Audio ADC.
 */
 
-#ifdef SBC_ENCODER
-#ifdef ATT_MTU_SIZE_180
-#define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 360     //120*n in 16-bit sample
-#else
-#define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 120
-#endif
-#endif
-
-#ifdef CELT_ENCODER
-#define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 320     //16-bit sample
-#endif
-
-#ifdef ADPCM_ENCODER
-#define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 256     //16-bit sample
-#endif
-
-
-
 //Fixed report ID for voice
 #define WICED_HIDD_VOICE_REPORT_ID      0xF7
 //Fixed report ID for voice ctrl
 #define WICED_HIDD_VOICE_CTL_REPORT_ID  0xF8
+
+#ifdef SUPPORT_AUDIO
+ #ifdef SBC_ENCODER
+  #ifdef ATT_MTU_SIZE_180
+   #define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 360     //120*n in 16-bit sample
+  #else
+   #define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 120
+  #endif
+ #endif
+
+ #ifdef CELT_ENCODER
+  #define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 320     //16-bit sample
+ #endif
+
+ #ifdef ADPCM_ENCODER
+  #define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 256     //16-bit sample
+ #endif
+
 
 enum
 {
@@ -345,4 +345,5 @@ wiced_bool_t wiced_hidd_mic_audio_write_codec_setting(uint8_t codec_param, uint8
 
 extern uint8_t stopMicCommandPending;
 
-#endif
+#endif // AUDIO_SUPPORT
+#endif // __WICED_HIDD_MIC_AUDIO_H__

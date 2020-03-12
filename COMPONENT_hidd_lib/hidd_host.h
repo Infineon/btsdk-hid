@@ -43,7 +43,6 @@
 #define _HIDD_HOST_LIST_
 
 #include "wiced_bt_dev.h"
-#include "hidd_lib.h"
 
 #define HIDD_HOST_LIST_MAX 1
 

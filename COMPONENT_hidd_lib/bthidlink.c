@@ -291,7 +291,7 @@ void bthidlink_determineNextState_on_powerup(void)
 {
     if(!wiced_hal_mia_is_reset_reason_por())
     {
-        WICED_BT_TRACE("\nwake from SDS");
+        WICED_BT_TRACE("\nwake from shutdown");
         bthidlink_determineNextState_on_wake_from_SDS();
     }
     else
@@ -585,6 +585,23 @@ void bthidlink_enterReconnecting(void)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// This method informs the transport that our state timer has expired.
+/// \param data provided by timer. Ignored
+////////////////////////////////////////////////////////////////////////////////
+void bthidlink_activityDetected()
+{
+    if (bt_hidd_link.subState == BTHIDLINK_CONNECTED)
+    {
+//        WICED_BT_TRACE("\nstart idle timer");
+        if (wiced_is_timer_in_use(&bt_hidd_link.stateTimer))
+        {
+            wiced_stop_timer(&bt_hidd_link.stateTimer);
+        }
+        wiced_start_timer( &bt_hidd_link.stateTimer, IDLE_TIMEOUT);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Enters connected state. Upon entering this state we perform the following
 /// actions:
 ///   - change state to CONNECTED
@@ -616,6 +633,9 @@ void bthidlink_enterConnected(const BD_ADDR host_bd_addr)
 
     // Inform the app of our current state.
     bthidlink_setState(BTHIDLINK_CONNECTED);
+
+    // start idle timer
+    bthidlink_activityDetected();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -748,24 +768,13 @@ void bthidlink_connectInd(const BD_ADDR host_bd_addr)
 }
 
 /////////////////////////////////////////////////////////////////////////////////
-/// Return whether we are connected. Connected is defined as ACL, control, and
-/// interrupt channel all being open.
+/// Check if the current bt link state is in the requested state
 ///
-/// \return WICED_TRUE if we are connected, WICED_FALSE otherwise
+/// \return TRUE/FALSE
 /////////////////////////////////////////////////////////////////////////////////
-wiced_bool_t wiced_bt_hidd_link_is_connected(void)
+wiced_bool_t wiced_bt_hidd_link_state_is(uint8_t state)
 {
-    return (bt_hidd_link.subState == BTHIDLINK_CONNECTED ? WICED_TRUE : WICED_FALSE);
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// Return whether we are Discoverable.
-///
-/// \return WICED_TRUE if substate is discoverable, WICED_FALSE otherwise
-/////////////////////////////////////////////////////////////////////////////////
-wiced_bool_t wiced_bt_hidd_link_is_discoverable(void)
-{
-    return bt_hidd_link.subState == BTHIDLINK_DISCOVERABLE ? WICED_TRUE : WICED_FALSE;
+    return bt_hidd_link.subState == state;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1145,6 +1154,10 @@ void bthidlink_statetimerTimeoutCb(uint32_t args)
     WICED_BT_TRACE("\nbthidlink_statetimerTimeoutCb %d",bt_hidd_link.subState );
     switch(bt_hidd_link.subState)
     {
+        case BTHIDLINK_CONNECTED:
+            wiced_bt_hidd_link_disconnect();
+            break;
+
         case BTHIDLINK_RECONNECTING:
             wiced_bt_hidd_connect();
             break;

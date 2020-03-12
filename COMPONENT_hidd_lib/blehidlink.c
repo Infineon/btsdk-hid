@@ -121,7 +121,7 @@ void blehidlink_init()
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// determine next action on cold boot
 /////////////////////////////////////////////////////////////////////////////////////////////
-void blehidlink_determineNextState_on_cold_boot(void)
+void blehidlink_determineNextState_on_boot(void)
 {
     //if low battery shutdown, enter disconnected
     if (wiced_hal_batmon_is_low_battery_shutdown())
@@ -130,7 +130,7 @@ void blehidlink_determineNextState_on_cold_boot(void)
         return;
     }
 
-    if(hidd_host_isBonded())
+    if(wiced_hidd_is_paired())
     {
         WICED_BT_TRACE("\nbonded info in NVRAM");
 
@@ -148,6 +148,7 @@ void blehidlink_determineNextState_on_cold_boot(void)
     }
     else
     {
+        WICED_BT_TRACE("\nno bonding");
         blehidlink_enterDisconnected();
 
 #ifdef START_ADV_WHEN_POWERUP_NO_CONNECTED
@@ -204,7 +205,7 @@ void blehidlink_determineNextState_on_wake_from_SDS(void)
         ble_hidd_link.osapi_app_timer_running = 0;
     }
 
-#if defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || defined(ALLOW_SDS_IN_DISCOVERABLE)
+#if is_SDS_capable && (defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || defined(ALLOW_SDS_IN_DISCOVERABLE))
     if ((BLEHIDLINK_ADVERTISING_IN_uBCS_DIRECTED == ble_hidd_link.resumeState) ||
         (BLEHIDLINK_ADVERTISING_IN_uBCS_UNDIRECTED == ble_hidd_link.resumeState))
     {
@@ -261,7 +262,7 @@ void blehidlink_determineNextState_on_wake_from_SDS(void)
             ble_hidd_link.pollReportUserActivityCallback();
         }
 
-#if defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || defined(ALLOW_SDS_IN_DISCOVERABLE)
+#if is_SDS_capable && (defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || defined(ALLOW_SDS_IN_DISCOVERABLE))
         //if no user activity and not wake up due to application timer timeout. restart adv again
         if ((BLEHIDLINK_DISCONNECTED == ble_hidd_link.subState) && !wake_from_SDS_timer_timeout)
         {
@@ -317,13 +318,19 @@ void blehidlink_determineNextState(void)
 {
     if(!wiced_hal_mia_is_reset_reason_por())
     {
+#if is_208xxFamily
+        // in 20819, this is HIDOFF wake up
+        WICED_BT_TRACE("\nwake from HIDOFF");
+        blehidlink_determineNextState_on_boot();
+#else
         WICED_BT_TRACE("\nwake from SDS");
         blehidlink_determineNextState_on_wake_from_SDS();
+#endif
     }
     else
     {
         WICED_BT_TRACE("\ncold boot");
-        blehidlink_determineNextState_on_cold_boot();
+        blehidlink_determineNextState_on_boot();
     }
 
     //always reset to 0
@@ -364,7 +371,7 @@ void wiced_ble_hidd_link_disconnected(void)
 #ifdef AUTO_RECONNECT
     //reconnect back if bonded with host and not in the process of lowbattery shut down
     //and disconnect is not due to virtual cable unplug
-    if(ble_hidd_link.auto_reconnect && hidd_host_isBonded() && !wiced_hal_batmon_is_low_battery_shutdown() && !ble_hidd_link.pendingStateTransiting)
+    if(ble_hidd_link.auto_reconnect && (wiced_hidd_host_transport() == BT_TRANSPORT_LE) && !wiced_hal_batmon_is_low_battery_shutdown() && !ble_hidd_link.pendingStateTransiting)
         wiced_start_timer(&ble_hidd_link.reconnect_timer,500); //auto reconnect in 500 ms
 #endif
     //clear link encrypted flag when disconnected
@@ -411,7 +418,8 @@ void wiced_ble_hidd_link_directed_adv_stop(void)
 {
     WICED_BT_TRACE("\nblehidlink_DirectedAdvStop");
 
-#if defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) && !defined(SUPPORT_EPDS)
+//#if defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) && is_SDS_capable)
+#if 0
     blehidlink_setState(BLEHIDLINK_ADVERTISING_IN_uBCS_DIRECTED);
 #else
  #ifdef WHITE_LIST_FOR_ADVERTISING
@@ -437,23 +445,13 @@ void wiced_ble_hidd_link_directed_adv_stop(void)
 }
 
 /////////////////////////////////////////////////////////////////////////////////
-/// check if it is currently connected
+/// check if the current ble link state is in the requested state
 ///
 /// \return TRUE/FALSE
 /////////////////////////////////////////////////////////////////////////////////
-wiced_bool_t  wiced_ble_hidd_link_is_connected(void)
+wiced_bool_t  wiced_ble_hidd_link_state_is(uint8_t state)
 {
-    return (ble_hidd_link.subState == BLEHIDLINK_CONNECTED);
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// Check if it is discoverable (i.e. connetable undirected advertising)
-///
-/// \return TRUE/FALSE
-/////////////////////////////////////////////////////////////////////////////////
-wiced_bool_t  wiced_ble_hidd_link_is_discoverable(void)
-{
-    return (ble_hidd_link.subState == BLEHIDLINK_DISCOVERABLE);
+    return (ble_hidd_link.subState == state);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -528,11 +526,14 @@ void blehidlink_enterDisconnected(void)
     wiced_bt_ble_clear_white_list();
 #endif
 
-#ifdef ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED
-    blehidlink_enterReconnecting();
-#else
-    blehidlink_setState(BLEHIDLINK_DISCONNECTED);
+#ifdef AUTO_RECONNECT
+    if ((wiced_hidd_host_transport() == BT_TRANSPORT_LE))
+    {
+        blehidlink_enterReconnecting();
+    }
+    else
 #endif
+    blehidlink_setState(BLEHIDLINK_DISCONNECTED);
 
     if (ble_hidd_link.pendingStateTransiting)
     {
@@ -1095,7 +1096,7 @@ void wiced_ble_hidd_link_aon_action_handler(uint8_t  type)
     }
     else
     {
-#if !defined(CYW20819A1) /* Slimboot is not supported in 20819A1 */
+#if !is_208xxFamily /* Slimboot is not supported in 20819A1 */
         // save all output GPIO values in the saved cfgs before entering uBCS mode
         wiced_hal_gpio_slimboot_reenforce_outputpin_value();
 

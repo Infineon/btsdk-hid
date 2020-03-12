@@ -44,6 +44,7 @@
 #include "wiced_hal_gpio.h"
 #include "wiced_bt_event.h"
 #include "wiced_bt_trace.h"
+#include "hidd_lib.h"
 
 #define PCM_AUDIO_BUFFER_SIZE       120  // in 16-bit sample
 
@@ -67,6 +68,13 @@ wiced_bool_t  pin_en_mic = WICED_TRUE;
 wiced_bool_t  pin_en_mic = WICED_FALSE;
 #endif
 
+#if is_208xxFamily
+extern void wiced_bt_allowSlaveLatency(wiced_bool_t allow);
+#else
+extern void allowSlaveLatency(wiced_bool_t allow);
+#define wiced_bt_allowSlaveLatency(allow) allowSlaveLatency(allow)
+#endif
+
 #ifdef SUPPORT_DIGITAL_MIC
 extern void adc_pdm_pinconfig(UINT8 ch1, UINT8 risingEdge1, UINT8 ch2, UINT8 risingEdge2, UINT8 clk);
 #define gpioDPMInClk  26
@@ -85,7 +93,11 @@ wiced_hidd_audio_encoding_t audioEncType;
 uint8_t stopMicCommandPending = 0;
 
 //adc audio fifo number
-#define BUFFER_ADC_AUDIO_FIFO_NUM	25
+#if is_208xxFamily
+ #define BUFFER_ADC_AUDIO_FIFO_NUM 4
+#else
+ #define BUFFER_ADC_AUDIO_FIFO_NUM 25
+#endif
 
 AdcAudioFifo wicedAdcAudioFifo[BUFFER_ADC_AUDIO_FIFO_NUM] = {0};
 //AdcAudioFifo wicedAdcAudioFifo2[BUFFER_ADC_AUDIO_FIFO_NUM] = {0};
@@ -131,7 +143,6 @@ extern uint32_t audio_byte_pool_size;
 extern uint32_t index_in_byte_pool;
 #endif
 
-extern void allowSlaveLatency(BOOL8 allow);
 extern void audio_drc_loop_init(UINT8 pgaGain, UINT32 sampleRate);
 extern void adc_assignFilterData(AdcAudioFilterCfg_t * data);
 
@@ -295,7 +306,7 @@ void wiced_hidd_mic_audio_stop(void)
         micAudioDriver.voiceStarted = FALSE;
         if(stopMicCommandPending == FALSE)
         {
-            allowSlaveLatency(TRUE);
+            wiced_bt_allowSlaveLatency(TRUE);
         }
     }
 
@@ -311,7 +322,7 @@ void wiced_hidd_mic_audio_stop(void)
 ///////////////////////////////////////////////////////////////////////////////
 void micAudio_startAudio()
 {
-    allowSlaveLatency(FALSE);
+    wiced_bt_allowSlaveLatency(FALSE);
     micAudioDriver.voiceStarted = 1;
 
     micAudioDriver.audioCounter = micAudioDriver.underflowCounter = micAudioDriver.overflowCounter = 0;

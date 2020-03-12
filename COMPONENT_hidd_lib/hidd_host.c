@@ -43,7 +43,7 @@
 #include "wiced_bt_trace.h"
 #include "wiced_bt_cfg.h"
 #include "wiced_hal_nvram.h"
-#include "hidd_host.h"
+#include "hidd_lib.h"
 
 #define COMMIT_DELAY 1000     // 1 sec to commit
 
@@ -202,9 +202,11 @@ static void host_Cear(void)
 ////////////////////////////////////////////////////////////////////////////////
 static uint8_t host_ShiftDown(uint8_t index)
 {
-    // make sure the index is valid
-    if (index <= host.count)
+    // make sure we have room to shift and the index is valid
+    if (index <= host.count && host.count < HIDD_HOST_LIST_MAX)
     {
+#if HIDD_HOST_LIST_MAX > 1
+        // check if need to shift
         if (index < host.count)
         {
             // Use memmove to ensure that overalpping areas are moved correctly
@@ -212,11 +214,18 @@ static uint8_t host_ShiftDown(uint8_t index)
                     &host.list[index],
                     HIDD_HOST_LIST_ELEMENT_SIZE*(host.count - index));
         }
-        // Clear the new element data at index
-        memset(&host.list[index], 0, HIDD_HOST_LIST_ELEMENT_SIZE);
+#endif
+        if (index<HIDD_HOST_LIST_MAX)
+        {
+            // Clear the new element data at index
+            memset((void *) &host.list[(int) index], 0, HIDD_HOST_LIST_ELEMENT_SIZE);
+        }
 
-        // Now we have one more host element
-        host.count++;
+        if (host.count < HIDD_HOST_LIST_MAX)
+        {
+            // Now we have one more host element
+            host.count++;
+        }
 
         return TRUE;
     }
@@ -238,15 +247,26 @@ static void host_ShiftUp(uint8_t index)
     if (index < host.count)
     {
         // We are removing one host
-        host.count--;
+        if (host.count)
+        {
+            host.count--;
+        }
 
-        // Use memmove to ensure that overalpping areas are moved correctly
-        memmove(&host.list[index],
-                &host.list[index+1],
-                HIDD_HOST_LIST_ELEMENT_SIZE*(host.count - index));
+#if HIDD_HOST_LIST_MAX > 1
+        if ((index+1) < HIDD_HOST_LIST_MAX)
+        {
+            // Use memmove to ensure that overalpping areas are moved correctly
+            memmove(&host.list[index],
+                    &host.list[index+1],
+                    HIDD_HOST_LIST_ELEMENT_SIZE*(host.count - index));
+        }
+#endif
 
-        // Clear the freed element
-        memset(&host.list[host.count], 0, HIDD_HOST_LIST_ELEMENT_SIZE);
+        if (host.count<HIDD_HOST_LIST_MAX)
+        {
+            // Clear the freed element
+            memset((void *) &host.list[(int) host.count], 0, HIDD_HOST_LIST_ELEMENT_SIZE);
+        }
     }
 }
 
@@ -323,29 +343,36 @@ static void host_del(uint8_t i)
 wiced_bool_t hidd_host_activate(const BD_ADDR bdAddr)
 {
     uint8_t index = host_findAddr(bdAddr);
+
+    // if host is already on the top, it is the active host already, we simply return false.
+    // When it is not on top, we do activate from bottem.
     if (index != HOST_INFO_INDEX_TOP)
     {
+        wiced_bool_t found = index != HOST_INFO_NOT_FOUND;
+
+#if HIDD_HOST_LIST_MAX > 1
         tHidd_HostInfo tempHost;
-        wiced_bool_t found = (index != HOST_INFO_NOT_FOUND);
 
         // if host is already in the list, save it
-        if (found)
+        if (found && index < HIDD_HOST_LIST_MAX)
         {
             // save current host info
-            memcpy((uint8_t *)&tempHost, (uint8_t *)&host.list[index], HIDD_HOST_LIST_ELEMENT_SIZE);
+            tempHost = host.list[index];
             host_del(index);
         }
-
+#endif
         // now we make room at the top for the new host
         host_ShiftDown(HOST_INFO_INDEX_TOP);
 
         WICED_BT_TRACE("\n%s host %B", found ? "Updating" : "Adding", bdAddr);
-        if (found)
+#if HIDD_HOST_LIST_MAX > 1
+        if (found && index < HIDD_HOST_LIST_MAX)
         {
             // restore original host info
-            memcpy((uint8_t *)&host.list[HOST_INFO_INDEX_TOP], (uint8_t *)&tempHost, HIDD_HOST_LIST_ELEMENT_SIZE);
+            host.list[HOST_INFO_INDEX_TOP] = tempHost;
         }
         else
+#endif
         {
             memcpy(host.list[HOST_INFO_INDEX_TOP].bdAddr, bdAddr, BD_ADDR_LEN);
             // default transport to LE
@@ -578,7 +605,7 @@ uint16_t wiced_hidd_host_set_flags(const BD_ADDR bdAddr, uint16_t enable, uint16
     if (host.list[HOST_INFO_INDEX_TOP].transport==BT_TRANSPORT_LE)
     {
         desiredFlags = host.list[HOST_INFO_INDEX_TOP].bt.le.flags;
-        host.list[HOST_INFO_INDEX_TOP].bt.le.flags = desiredFlags = enable ? desiredFlags | flags : desiredFlags & ~(flags);
+        host.list[HOST_INFO_INDEX_TOP].bt.le.flags = desiredFlags = (enable ? desiredFlags | flags : desiredFlags & ~(flags));
     }
 #endif
 #ifdef BR_EDR_SUPPORT

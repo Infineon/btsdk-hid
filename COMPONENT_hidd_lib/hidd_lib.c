@@ -53,6 +53,9 @@
 #include "hci_control_api.h"
 #include "bthidlink.h"
 
+#define PMU_CONFIG_FLAGS_ENABLE_SDS           0x00002000
+extern UINT32 g_foundation_config_PMUflags;
+
 //Local identity key ID
 #define  VS_LOCAL_IDENTITY_ID WICED_NVRAM_VSID_START
 
@@ -62,7 +65,8 @@
 typedef struct
 {
     // is shutdown sleep (SDS) allowed?
-    uint8_t allowDeepSleep;
+    uint8_t allowDeepSleep:1;
+    uint8_t allowHIDOFF:1;
 
     /// allow SDS timer
     wiced_timer_t allowDeepSleepTimer;
@@ -78,7 +82,6 @@ typedef struct
 
 void blehidlink_init(void);
 void blehidlink_determineNextState(void);
-void blehidlink_setState(uint8_t newState);
 void blehidlink_enterDisconnected();
 void blehidlink_enterDiscoverable(uint32_t);
 void bthidlink_init(void);
@@ -104,7 +107,7 @@ typedef struct
 
     uint8_t       blinking_gpio:6;
     uint8_t       blinking_state:1;
-    uint8_t       blliking_off_level:1;
+    uint8_t       blinking_off_level:1;
 
 } tLED; tLED led={};
 
@@ -116,7 +119,7 @@ void led_blink_handler(uint32_t arg)
     if (led.blinking_state)
     {
         led.blinking_state = 0;
-        wiced_hal_gpio_set_pin_output(led.blinking_gpio, led.blliking_off_level);
+        wiced_hal_gpio_set_pin_output(led.blinking_gpio, led.blinking_off_level);
         if (led.blinking_count)
         {
             // if counted to 0, don't start again
@@ -133,11 +136,11 @@ void led_blink_handler(uint32_t arg)
                 {
                     if (led.state & (1 << led.blinking_gpio))
                     {
-                        wiced_hal_gpio_set_pin_output(led.blinking_gpio, !led.blliking_off_level);
+                        wiced_hal_gpio_set_pin_output(led.blinking_gpio, !led.blinking_off_level);
                     }
                     else
                     {
-                        wiced_hal_gpio_set_pin_output(led.blinking_gpio, led.blliking_off_level);
+                        wiced_hal_gpio_set_pin_output(led.blinking_gpio, led.blinking_off_level);
                     }
                 }
                 return;
@@ -146,7 +149,7 @@ void led_blink_handler(uint32_t arg)
     }
     else
     {
-        wiced_hal_gpio_set_pin_output(led.blinking_gpio, !led.blliking_off_level);
+        wiced_hal_gpio_set_pin_output(led.blinking_gpio, !led.blinking_off_level);
         led.blinking_state = 1;
     }
     wiced_start_timer(&led.blinking_timer, led.blinking_duration);
@@ -177,7 +180,7 @@ void wiced_hidd_led_blink(uint8_t gpio, uint32_t count, uint32_t how_fast_in_ms)
     led.blinking_count = count;
     led.blinking_gpio = gpio;
     led.blinking_state = 0;
-    led.blliking_off_level = led.off_level & (1<<gpio) ? 1 : 0;
+    led.blinking_off_level = led.off_level & (1<<gpio) ? 1 : 0;
     led_blink_handler(0);
 }
 
@@ -193,7 +196,7 @@ void wiced_hidd_led_blink_error(uint8_t gpio, uint8_t code)
 ////////////////////////////////////////////////////////////////////////////////
 void wiced_hidd_led_init(uint8_t gpio, uint8_t off_level)
 {
-    uint64_t ledbit = (1 << gpio);
+    uint64_t ledbit = ((uint64_t)1 << gpio);
     wiced_hal_gpio_configure_pin(gpio, GPIO_OUTPUT_ENABLE, off_level);
     wiced_hal_gpio_slimboot_reenforce_cfg(gpio, GPIO_OUTPUT_ENABLE);
     if (off_level)
@@ -206,10 +209,10 @@ void wiced_hidd_led_init(uint8_t gpio, uint8_t off_level)
 ////////////////////////////////////////////////////////////////////////////////
 void wiced_hidd_led_on(uint8_t gpio)
 {
-    uint64_t ledbit = (1 << gpio);
+    uint64_t ledbit = ((uint64_t)1 << gpio);
     uint8_t on = led.off_level & ledbit ? 0 : 1;
     led.state |= ledbit;
-//    WICED_BT_TRACE("\nLED %d %d",gpio, on);
+//    WICED_BT_TRACE("\nLED_on %d %d",gpio, on);
     wiced_hal_gpio_set_pin_output(gpio, on);
 }
 
@@ -217,10 +220,10 @@ void wiced_hidd_led_on(uint8_t gpio)
 ////////////////////////////////////////////////////////////////////////////////
 void wiced_hidd_led_off(uint8_t gpio)
 {
-    uint64_t ledbit = (1 << gpio);
+    uint64_t ledbit = ((uint64_t)1 << gpio);
     uint8_t off = led.off_level & ledbit ? 1 : 0;
     led.state &= ~ledbit;
-//    WICED_BT_TRACE("\nLED %d %d",gpio, off);
+//    WICED_BT_TRACE("\nLED_off %d %d",gpio, off);
     wiced_hal_gpio_set_pin_output(gpio, off);
 }
 
@@ -228,10 +231,10 @@ void wiced_hidd_led_off(uint8_t gpio)
 ////////////////////////////////////////////////////////////////////////////////
  #ifdef LED_USE_PWM
   #define PWM_BASE 26
-  #if (CHIP==CHIP_20730) || (CHIP==CHIP_20733)
-   #define PWM_MAX_COUNTER 0x3ff   // 10 bit counter
-  #else
+  #if is_newFamily
    #define PWM_MAX_COUNTER 0xffff   // 16 bit counter
+  #else
+   #define PWM_MAX_COUNTER 0x3ff   // 10 bit counter
   #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -249,7 +252,7 @@ void wiced_hidd_pwm_led_init(uint8_t gpio, uint8_t off_level)
 // gpio needs to be changed to PWM specified in platform.c
 void wiced_hidd_pwm_led_on(uint8_t gpio, uint8_t percent)
 {
-    uint64_t mask = (1 << gpio);
+    uint64_t mask = ((uint64_t)1 << gpio);
     uint8_t off = led.off_level & mask ? 1 : 0;
     uint8_t pwm = gpio - PWM_BASE;
     uint16_t init_value = PWM_MAX_COUNTER;
@@ -276,8 +279,8 @@ void wiced_hidd_pwm_led_off(uint8_t gpio)
     wiced_hal_pwm_disable(gpio - PWM_BASE);
     wiced_hidd_led_off(gpio);
 }
- #endif
-#endif
+ #endif // LED_USE_PWM
+#endif // LED_SUPPORT
 
 ////////////////////////////////////////////////////////////////////////////////
 /// This function is the timeout handler for allowsleep_timer
@@ -367,7 +370,7 @@ uint32_t hidd_link_sleep_handler(wiced_sleep_poll_type_t type )
 #ifdef BLE_SUPPORT
                || (ble_hidd_link.second_conn_state == BLEHIDLINK_2ND_CONNECTION_PENDING)
 #endif
-#ifdef BR_EDR_SUPPORT
+#if defined(BR_EDR_SUPPORT) && is_20735Family
                //due to sniff+SDS is not supported in core FW, at this time, only allow SDS when disconnected
                || (bt_hidd_link.subState != BTHIDLINK_DISCONNECTED)
 #endif
@@ -386,6 +389,26 @@ uint32_t hidd_link_sleep_handler(wiced_sleep_poll_type_t type )
             //save to AON before entering SDS
             if (ret == WICED_SLEEP_ALLOWED_WITH_SHUTDOWN)
             {
+// if support epds, we need to determine if it should enter epds or hidoff
+#ifdef SUPPORT_EPDS
+                if (!wiced_hidd_link_is_disconnected() || !hidd.allowHIDOFF)
+                {
+                    // enter ePDS
+                    g_foundation_config_PMUflags &= ~PMU_CONFIG_FLAGS_ENABLE_SDS;
+                }
+                else
+                {
+                    static uint8_t showHIDOFF = 1;
+                    if (showHIDOFF)
+                    {
+                        showHIDOFF = 0;
+                        WICED_BT_TRACE("\nHIDOFF");
+                    }
+                    /* allow ePDS */
+                    g_foundation_config_PMUflags |= PMU_CONFIG_FLAGS_ENABLE_SDS;
+                }
+#endif
+
 #ifdef BLE_SUPPORT
                 wiced_ble_hidd_link_aon_action_handler(BLEHIDLINK_SAVE_TO_AON);
 #endif
@@ -406,10 +429,29 @@ wiced_sleep_config_t    hidd_link_sleep_config = {
     WICED_SLEEP_WAKE_SOURCE_GPIO | WICED_SLEEP_WAKE_SOURCE_KEYSCAN | WICED_SLEEP_WAKE_SOURCE_QUAD,  //device_wake_source
     255,                            //must set device_wake_gpio_num to 255 for WICED_SLEEP_MODE_NO_TRANSPORT
     hidd_link_sleep_handler,       //sleep_permit_handler
-#if defined(CYW20819A1)
+#if is_208xxFamily
     NULL,                           //post_sleep_handler
 #endif
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// returns chip number
+////////////////////////////////////////////////////////////////////////////////
+uint32_t wiced_hidd_chip()
+{
+#if is_208xxFamily
+    #define RADIO_ID    0x006007c0
+    #define RADIO_20820 0x80
+    uint32_t chip = 20819;
+    if (*(UINT32*) RADIO_ID & RADIO_20820)
+    {
+        chip = 20820;
+    }
+#else
+    uint32_t chip = CHIP;
+#endif
+    return chip;
+}
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// wiced_hidd_link_connect
@@ -468,6 +510,25 @@ wiced_bool_t wiced_hidd_link_is_connected()
     }
 #endif
     return FALSE;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+wiced_bool_t wiced_hidd_link_is_disconnected()
+{
+    wiced_bool_t state =
+#ifdef BLE_SUPPORT
+        wiced_ble_hidd_link_is_disconnected()
+ #if BR_EDR_SUPPORT
+        &&
+ #endif
+#endif
+#ifdef BR_EDR_SUPPORT
+        wiced_bt_hidd_link_is_disconnected()
+#endif
+        ;
+//    WICED_BT_TRACE("\nis_disconnected %d %d(%d) %d(%d)", state,  wiced_ble_hidd_link_is_disconnected(), ble_hidd_link.subState, wiced_bt_hidd_link_is_disconnected(), bt_hidd_link.subState);
+    return state;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -666,11 +727,12 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
     if (app_management_cback_ptr)
     {
         result = app_management_cback_ptr(event, p_event_data);
-        if (result != WICED_NOT_FOUND) // if application has handled the event
+        if (result != WICED_RESUME_HIDD_LIB_HANDLER) // if application has handled the event
         {
             return result;
         }
-        // not handled by app, default result back to success and continue with default handler
+        // Not handled by app or app requests to resume.
+        // Default result back to success and continue with default handler.
         result = WICED_BT_SUCCESS;
     }
 
@@ -739,7 +801,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
 
                         if (hidd_host_isBonded())
                         {
-                            uint8_t *bonded_bdadr = (uint8_t *)wiced_ble_hidd_host_info_get_bdaddr();
+                            uint8_t *bonded_bdadr = wiced_hidd_host_addr();
 
                             WICED_BT_TRACE("\n remove bonded device : %B", bonded_bdadr);
                             wiced_bt_dev_delete_bonded_device(bonded_bdadr);
@@ -838,8 +900,10 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
             /* save keys to NVRAM */
             p_keys = (uint8_t *)&p_event_data->local_identity_keys_update;
             wiced_hal_write_nvram ( VS_LOCAL_IDENTITY_ID, sizeof( wiced_bt_local_identity_keys_t ), p_keys ,&result );
+#if 0
             WICED_BT_TRACE("\n local keys save to NVRAM result: %d", result);
-//            TRACE_ARRAY(p_event_data->local_identity_keys_update.local_key_data, BTM_SECURITY_LOCAL_KEY_DATA_LEN);
+            TRACE_ARRAY(p_event_data->local_identity_keys_update.local_key_data, BTM_SECURITY_LOCAL_KEY_DATA_LEN);
+#endif
             break;
 
         case  BTM_LOCAL_IDENTITY_KEYS_REQUEST_EVT:
@@ -847,11 +911,13 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
             /* read keys from NVRAM */
             p_keys = (uint8_t *)&p_event_data->local_identity_keys_request;
             wiced_hal_read_nvram( VS_LOCAL_IDENTITY_ID, sizeof(wiced_bt_local_identity_keys_t), p_keys, &result );
+#if 0
             WICED_BT_TRACE("\n local keys read from NVRAM result: %d",  result);
             if (!result)
             {
-//                STRACE_ARRAY("\n", p_keys, BTM_SECURITY_LOCAL_KEY_DATA_LEN);
+                STRACE_ARRAY("\n", p_keys, BTM_SECURITY_LOCAL_KEY_DATA_LEN);
             }
+#endif
             break;
 
         case BTM_ENCRYPTION_STATUS_EVT:
@@ -953,6 +1019,11 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
 
         case BTM_SECURITY_REQUEST_EVT:
             WICED_BT_TRACE("\nBTM_SECURITY_REQUEST_EVT");
+            if (wiced_hidd_host_transport() == BT_TRANSPORT_LE)
+            {
+                WICED_BT_TRACE("\nClear CCCD's");
+                wiced_hidd_host_set_flags(p_event_data->security_request.bd_addr, 0, 0xFFFF);
+            }
              /* Use the default security */
             wiced_bt_ble_security_grant(p_event_data->security_request.bd_addr,  WICED_BT_SUCCESS);
             break;
@@ -980,7 +1051,8 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
             {
                 wiced_ble_hidd_link_directed_adv_stop();
             }
-#if !defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || !defined(SUPPORT_EPDS)
+//#if defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED)
+#if 0
             // btstack will switch to low adv mode automatically when high adv mode timeout,
             // for HIDD, we want to stop adv instead
             else if ((curr_adv_mode == BTM_BLE_ADVERT_UNDIRECTED_HIGH) &&
@@ -994,7 +1066,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
             {
                 blehidlink_setState(BLEHIDLINK_DISCONNECTED);
 #ifdef AUTO_RECONNECT
-                if(ble_hidd_link.auto_reconnect && hidd_host_isBonded() && !wiced_hal_batmon_is_low_battery_shutdown())
+                if(ble_hidd_link.auto_reconnect && (wiced_hidd_host_transport() == BT_TRANSPORT_BR_EDR) && !wiced_hal_batmon_is_low_battery_shutdown())
                     wiced_ble_hidd_link_connect();
 #endif
             }
@@ -1033,6 +1105,11 @@ const wiced_bt_cfg_settings_t * wiced_hidd_cfg()
 ///        p_bt_cfg_settings      - bt configuration setting
 ///        wiced_bt_cfg_buf_pools - buffer pool configuration
 /////////////////////////////////////////////////////////////////////////////////
+#if is_newFamily
+#define lhl_ctl_adr 0x00338130
+#else
+#define lhl_ctl_adr 0x00336130
+#endif
 void wiced_hidd_start(wiced_result_t (*p_bt_app_init)(),
                       wiced_bt_management_cback_t   * p_bt_management_cback,
                       const wiced_bt_cfg_settings_t * p_bt_cfg_settings,
@@ -1042,7 +1119,9 @@ void wiced_hidd_start(wiced_result_t (*p_bt_app_init)(),
 #if LED_SUPPORT
     wiced_init_timer( &led.blinking_timer, led_blink_handler, 0, WICED_MILLI_SECONDS_TIMER );
 #endif
-    WICED_BT_TRACE("\n\n<<%s start>>",p_bt_cfg_settings->device_name);
+
+    // Bit 1: Enables KeyScan so it can detect the keys pressed before power up.
+    REG32(lhl_ctl_adr)  |= HW_CTRL_SCAN_CTRL_MASK << 1;
 
     app_management_cback_ptr = p_bt_management_cback;
     app_init_ptr = p_bt_app_init;
@@ -1054,8 +1133,29 @@ void wiced_hidd_start(wiced_result_t (*p_bt_app_init)(),
     {
         hidd.wiced_bt_hid_cfg_settings_ptr = p_bt_cfg_settings;
         wiced_bt_stack_init (hidd_management_cback, p_bt_cfg_settings, p_bt_cfg_buf_pools);
+        WICED_BT_TRACE("\n\n<<%s start>>",p_bt_cfg_settings->device_name);
     }
 }
+
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+void wiced_hidd_allowed_hidoff(wiced_bool_t en)
+{
+//    WICED_BT_TRACE("\nHIDOFF is %sAllowed",en? "":"not ");
+    hidd.allowHIDOFF = en ? 1 : 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// wiced_hidd_activity_detected
+////////////////////////////////////////////////////////////////////////////////
+void wiced_hidd_activity_detected()
+{
+#ifdef BR_EDR_SUPPORT
+    extern void bthidlink_activityDetected();
+    bthidlink_activityDetected();
+#endif
+}
+
 
 #ifdef WICED_BT_TRACE_ENABLE
 /////////////////////////////////////////////////////////////////////////////////

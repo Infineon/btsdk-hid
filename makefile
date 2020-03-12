@@ -76,12 +76,16 @@ COMPONENT=
 CY_APP_PATH=.
 
 CY_SHARED_PATH=$(CY_APP_PATH)/../../..
+# absolute path to the root of the BTSDK
+CY_SHARED_PATH_ABS=$(CURDIR)/../../..
 
 # Path (absolute or relative) to the base library
 CY_BASELIB_PATH=$(CY_SHARED_PATH)/dev-kit/baselib/$(CY_TARGET_DEVICE)
 
 # lib-specific includes
-INCLUDES+=
+ifeq ($(OTA_FW_UPGRADE),1)
+INCLUDES+=$(CY_SHARED_PATH)/dev-kit/libraries/btsdk-ota/COMPONENT_fw_upgrade_lib
+endif
 
 # Extra makefiles includes - target makefile
 CY_EXTRA_INCLUDES=$(CY_SHARED_PATH)/dev-kit/bsp/TARGET_$(TARGET)/$(TARGET).mk

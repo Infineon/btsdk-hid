@@ -60,12 +60,23 @@
  #define STRACE_ARRAY(str, ptr, len)
 #endif
 
+#define is_208xxFamily ((CHIP==20819) || (CHIP==20820))
+#define is_20739Family ((CHIP==20739) || (CHIP==20719))
+#define is_20735Family (CHIP==20735)
+#define is_SDS_capable (is_20735Family || is_20739Family)
+#define is_ePDS_capable is_208xxFamily
+#define is_newFamily (is_20735Family || is_20739Family || is_208xxFamily)
+
 typedef struct{
     uint16_t     handle;
     uint16_t     attr_len;
     const void * p_attr;
 }attribute_t;
 
+void blehidlink_allowDiscoverable(void);
+void blehidlink_setState(uint8_t newState);
+
+#define WICED_RESUME_HIDD_LIB_HANDLER WICED_NOT_FOUND
 /******************************************************************************************/
 // Gatts functions /////////////////////////////////////////////////////////////////////////
 /******************************************************************************************/
@@ -178,6 +189,11 @@ uint8_t wiced_hidd_link_state();
 wiced_bool_t wiced_hidd_link_is_connected();
 
 ///////////////////////////////////////////////////////////////////////////////
+/// returns if HID link is disconnected
+///////////////////////////////////////////////////////////////////////////////
+wiced_bool_t wiced_hidd_link_is_disconnected();
+
+///////////////////////////////////////////////////////////////////////////////
 /// returns if HID link is connected
 ///////////////////////////////////////////////////////////////////////////////
 wiced_bool_t wiced_hidd_link_is_encrypted();
@@ -262,6 +278,11 @@ void wiced_hidd_pwm_led_off(uint8_t gpio);
 /******************************************************************************************/
 
 ////////////////////////////////////////////////////////////////////////////////
+// returns chip number
+////////////////////////////////////////////////////////////////////////////////
+uint32_t wiced_hidd_chip();
+
+////////////////////////////////////////////////////////////////////////////////
 // returns hidd configuraion pointer
 ////////////////////////////////////////////////////////////////////////////////
 const wiced_bt_cfg_settings_t * wiced_hidd_cfg();
@@ -277,5 +298,17 @@ void wiced_hidd_start(wiced_result_t (*p_bt_app_init)(),
                       wiced_bt_management_cback_t   * p_bt_management_cback,
                       const wiced_bt_cfg_settings_t * p_bt_cfg_settings,
                       const wiced_bt_cfg_buf_pool_t * p_bt_cfg_buf_pools);
+
+
+////////////////////////////////////////////////////////////////////////////////
+// wiced_hidd_allowed_hidoff
+////////////////////////////////////////////////////////////////////////////////
+void wiced_hidd_allowed_hidoff(wiced_bool_t en);
+
+////////////////////////////////////////////////////////////////////////////////
+// wiced_hidd_activity_detected
+////////////////////////////////////////////////////////////////////////////////
+void wiced_hidd_activity_detected();
+
 
 #endif

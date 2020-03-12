@@ -48,6 +48,7 @@
 
 #define LINK_SUPERVISION_TIMEOUT_IN_SLOTS   3200
 #define DISCOVERY_TIMEOUT                  60000                  // One minite discovery
+#define IDLE_TIMEOUT                      180000                  // idle time
 
 #pragma pack(1)
 typedef struct
@@ -255,19 +256,32 @@ void wiced_bt_hidd_link_add_state_observer(wiced_bt_hidd_state_change_callback_t
 void wiced_bt_hidd_link_enable_poll_callback(wiced_bool_t enable);
 
 /////////////////////////////////////////////////////////////////////////////////
-/// Check if it is currently connected. Connected is defined as ACL, control, and
-/// interrupt channel all being open.
+/// Check if the current link state is in the requested state
 ///
 /// \return WICED_TRUE/WICED_FALSE
 /////////////////////////////////////////////////////////////////////////////////
-wiced_bool_t  wiced_bt_hidd_link_is_connected(void);
+wiced_bool_t wiced_bt_hidd_link_state_is(uint8_t state);
+
+/////////////////////////////////////////////////////////////////////////////////
+/// Check if the current bt link state is in the requested state
+///
+/// \return WICED_TRUE/WICED_FALSE
+/////////////////////////////////////////////////////////////////////////////////
+#define wiced_bt_hidd_link_is_connected() wiced_bt_hidd_link_state_is(BTHIDLINK_CONNECTED)
+
+/////////////////////////////////////////////////////////////////////////////////
+/// Check if it is currently disconnected.
+///
+/// \return WICED_TRUE/WICED_FALSE
+/////////////////////////////////////////////////////////////////////////////////
+#define wiced_bt_hidd_link_is_disconnected() wiced_bt_hidd_link_state_is(BTHIDLINK_DISCONNECTED)
 
 /////////////////////////////////////////////////////////////////////////////////
 /// Return whether we are Discoverable.
 ///
 /// \return WICED_TRUE if substate is discoverable, WICED_FALSE otherwise
 /////////////////////////////////////////////////////////////////////////////////
-wiced_bool_t wiced_bt_hidd_link_is_discoverable(void);
+#define wiced_bt_hidd_link_is_discoverable() wiced_bt_hidd_link_state_is(BTHIDLINK_DISCOVERABLE)
 
 /////////////////////////////////////////////////////////////////////////////////
 /// Connect

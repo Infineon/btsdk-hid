@@ -200,7 +200,8 @@ void hci_hidd_dev_handle_reset_cmd( void )
 void hci_control_handle_trace_enable( uint8_t *p_data )
 {
     uint8_t hci_trace_enable = *p_data++;
-    wiced_debug_uart_types_t route_debug = (wiced_debug_uart_types_t)*p_data;
+//    wiced_debug_uart_types_t route_debug = (wiced_debug_uart_types_t)*p_data;
+    wiced_debug_uart_types_t route_debug = WICED_ROUTE_DEBUG_TO_PUART; // force to use PUART for now until we figure out why using WICED_HCI will cause BR/EDR pairing to fail.
 
     WICED_BT_TRACE("\nHCI Traces:%s DebugRoute:%d", hci_trace_enable?"Enable":"Disable", route_debug);
 
@@ -265,21 +266,7 @@ void hci_control_misc_handle_get_version( void )
 {
     uint8_t   tx_buf[15];
     uint8_t   cmd = 0;
-
-// If this is 20819 or 20820, we do detect the device from hardware
-#define RADIO_ID    0x006007c0
-#define RADIO_20820 0x80
-#define CHIP_20820  20820
-#define CHIP_20819  20819
-#if (CHIP==CHIP_20819) || (CHIP==CHIP_20820)
-    uint32_t chip = CHIP_20819;
-    if (*(UINT32*) RADIO_ID & RADIO_20820)
-    {
-        chip = CHIP_20820;
-    }
-#else
-    uint32_t  chip = CHIP;
-#endif
+    uint32_t  chip = wiced_hidd_chip();
 
     tx_buf[cmd++] = WICED_SDK_MAJOR_VER;
     tx_buf[cmd++] = WICED_SDK_MINOR_VER;
@@ -539,6 +526,7 @@ void hci_trace_to_puart_cback( wiced_bt_hci_trace_type_t type, uint16_t length, 
 
 void hci_control_enable_trace()
 {
+    WICED_BT_TRACE("\nHCI TRACE ENABLE");
     wiced_bt_dev_register_hci_trace( hci_trace_to_puart_cback );
 }
 

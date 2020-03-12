@@ -134,6 +134,8 @@ wiced_bt_gatt_status_t blehid_gatts_req_read_handler( uint16_t conn_id, wiced_bt
     // default to invalid handle
     result = WICED_BT_GATT_INVALID_HANDLE;
 
+//    WICED_BT_TRACE("\nread_hndlr conn %d hdl 0x%x", conn_id, p_read_data->handle );
+
     puAttribute = blehid_gatts_get_attribute(p_read_data->handle);
     if(puAttribute)
     {
@@ -151,6 +153,8 @@ wiced_bt_gatt_status_t blehid_gatts_req_read_handler( uint16_t conn_id, wiced_bt
             attr_len_to_copy = puAttribute->attr_len;
         }
 
+        // WICED_BT_TRACE("\nattr_len_to_copy: %d offset: %d", attr_len_to_copy, p_read_data->offset);
+
         if(attr_len_to_copy<*p_read_data->p_val_len)
         {
             // report back our length
@@ -162,7 +166,7 @@ wiced_bt_gatt_status_t blehid_gatts_req_read_handler( uint16_t conn_id, wiced_bt
         //make sure copying buff is large enough so it won't corrupt memory
         if(attr_len_to_copy >= mtu)
         {
-            WICED_BT_TRACE("\nsize(%d) > mtu(%d)", attr_len_to_copy, mtu);
+//            WICED_BT_TRACE("\nsize(%d) > mtu(%d)", attr_len_to_copy, mtu);
             attr_len_to_copy = mtu - 1;
         }
 
@@ -205,8 +209,14 @@ void blehid_ota_fw_upgrade_status(uint8_t status)
 wiced_bt_gatt_status_t blehid_gatts_req_write_handler( uint16_t conn_id, wiced_bt_gatt_write_t * p_data )
 {
     attribute_t *puAttribute;
-
     wiced_bt_gatt_status_t result;
+
+#if 0
+    if (wiced_blehidd_is_device_bonded() == WICED_FALSE)
+    {
+        return WICED_BT_GATT_INSUF_AUTHENTICATION;
+    }
+#endif
 
     // NOTE: the gatt connection id is not the connection handler in the controller.
     if( conn_id != ble_hidd_link.gatts_conn_id)
@@ -252,7 +262,7 @@ wiced_bt_gatt_status_t blehid_gatts_req_write_handler( uint16_t conn_id, wiced_b
         // default to success
         result = WICED_BT_GATT_SUCCESS;
 
-        //WICED_BT_TRACE("\nwrite_handler: conn %d hdl %x prep %d off %d len %d", conn_id, p_data->handle, p_data->is_prep, p_data->offset,p_data->val_len );
+        // WICED_BT_TRACE("\nwrite_handler: conn %d hdl %x prep %d off %d len %d", conn_id, p_data->handle, p_data->is_prep, p_data->offset,p_data->val_len );
 
         puAttribute = (attribute_t *)blehid_gatts_get_attribute(p_data->handle);
 

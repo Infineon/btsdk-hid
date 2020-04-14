@@ -615,7 +615,7 @@ uint16_t wiced_hidd_host_set_flags(const BD_ADDR bdAddr, uint16_t enable, uint16
         host.list[HOST_INFO_INDEX_TOP].bt.br_edr.flags = desiredFlags = enable ? desiredFlags | flags : desiredFlags & ~(flags);
     }
 #endif
-    WICED_BT_TRACE("\n%s %04x, new flags:%04x",enable?"Set":"Clear", flags, desiredFlags);
+    WICED_BT_TRACE("\n%s %04x, cccd flags:%04x",enable?"Set":"Clear", flags, desiredFlags);
     host_Update(COMMIT_DELAY);
     return desiredFlags;
 }

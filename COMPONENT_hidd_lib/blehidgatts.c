@@ -211,13 +211,6 @@ wiced_bt_gatt_status_t blehid_gatts_req_write_handler( uint16_t conn_id, wiced_b
     attribute_t *puAttribute;
     wiced_bt_gatt_status_t result;
 
-#if 0
-    if (wiced_blehidd_is_device_bonded() == WICED_FALSE)
-    {
-        return WICED_BT_GATT_INSUF_AUTHENTICATION;
-    }
-#endif
-
     // NOTE: the gatt connection id is not the connection handler in the controller.
     if( conn_id != ble_hidd_link.gatts_conn_id)
     {
@@ -286,6 +279,10 @@ wiced_bt_gatt_status_t blehid_gatts_req_write_handler( uint16_t conn_id, wiced_b
                 result = wiced_bt_gatt_legattdb_dispatchWriteCb(p_data);
             }
 #endif
+            if ((result == WICED_BT_GATT_SUCCESS) && !wiced_blehidd_is_device_bonded())
+            {
+                result = WICED_BT_GATT_INSUF_AUTHENTICATION;
+            }
         }
         else
         {

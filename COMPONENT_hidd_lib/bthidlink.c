@@ -1044,7 +1044,7 @@ void bthidlink_passCode(uint8_t pinCodeSize, uint8_t *pinCodeBuffer)
         {
             uint8_t i;
             // Convert the char string to an unsigned int, base10
-            //passkey = (UINT32) strtoul((const char*)pinCodeBuffer, NULL, 10);
+            //passkey = (UINT32) utl_strtoul((const char*)pinCodeBuffer, NULL, 10);
             for (i=0; i<pinCodeSize; i++)
             {
               passkey = passkey * 10 + pinCodeBuffer[i] - '0';

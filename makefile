@@ -56,6 +56,7 @@ INCLUDES=\
     $(CY_SHARED_PATH)/dev-kit/bsp/TARGET_$(TARGET) \
     $(CY_BSP_PATH) \
     $(CY_BASELIB_PATH)/WICED/common
+
 DEFINES=
 VFP_SELECT=
 CFLAGS=

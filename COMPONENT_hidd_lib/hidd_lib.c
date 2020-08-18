@@ -442,15 +442,17 @@ uint32_t wiced_hidd_chip()
 #if is_208xxFamily
     #define RADIO_ID    0x006007c0
     #define RADIO_20820 0x80
-    uint32_t chip = 20819;
-    if (*(UINT32*) RADIO_ID & RADIO_20820)
+    static uint32_t chip = 0;
+
+    // the radio id register become not accessible after ePDS; thus, read it only once at power up. Return the saved value thereafter.
+    if (!chip)
     {
-        chip = 20820;
+        chip = (*(UINT32*) RADIO_ID & RADIO_20820) ? 20820 : 20819;
     }
-#else
-    uint32_t chip = CHIP;
-#endif
     return chip;
+#else
+    return CHIP;
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -1122,6 +1124,12 @@ void wiced_hidd_start(wiced_result_t (*p_bt_app_init)(),
 
     // Bit 1: Enables KeyScan so it can detect the keys pressed before power up.
     REG32(lhl_ctl_adr)  |= HW_CTRL_SCAN_CTRL_MASK << 1;
+
+#if is_208xxFamily
+    // For 208xx, the chip id is identified by Radio id register; however, the register may get disabled after entering ePDS;
+    // therefore, we read it once at power up and save the id.
+    wiced_hidd_chip();
+#endif
 
     app_management_cback_ptr = p_bt_management_cback;
     app_init_ptr = p_bt_app_init;

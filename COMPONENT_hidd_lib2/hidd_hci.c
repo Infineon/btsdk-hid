@@ -52,7 +52,7 @@
  #include "wiced_hal_wdog.h"
 #endif
 #include "wiced_memory.h"
-#if ( defined(CYW20706A2) || defined(CYW20719B1) || defined(CYW20719B0) || defined(CYW20721B1) || defined(CYW20719B2) || defined(CYW20735B0) || defined(CYW43012C0) )
+#if ( defined(CYW20706A2) || defined(CYW20719B1) || defined(CYW20719B0) || defined(CYW20721B1) || defined(CYW20735B0) || defined(CYW43012C0) )
 #include "wiced_bt_app_common.h"
 #endif
 #include "gki_target.h"
@@ -295,7 +295,7 @@ void hci_hidd_handle_command( uint16_t cmd_opcode, uint8_t * p_data, uint32_t da
         WICED_BT_TRACE("Host info req.");
         hci_control_send_paired_host_info();
 #ifdef BLE_SUPPORT
-        hci_control_send_state_change(BT_TRANSPORT_LE, hidd_blelink.subState);
+        hci_control_send_state_change(BT_TRANSPORT_LE, blelink.subState);
         hci_control_send_advertisement_state_evt( hidd_blelink_get_adv_mode() );
 #endif
 #ifdef BR_EDR_SUPPORT

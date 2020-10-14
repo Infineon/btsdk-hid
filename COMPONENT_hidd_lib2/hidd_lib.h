@@ -203,7 +203,7 @@ enum {
 ////////////////////////////////////////////////////////////////////////////////
 // returns hidd configuraion pointer
 ////////////////////////////////////////////////////////////////////////////////
-const wiced_bt_cfg_settings_t * hidd_cfg();
+wiced_bt_cfg_settings_t * hidd_cfg();
 
 ////////////////////////////////////////////////////////////////////////////////
 /// wiced_ble_hidd_start
@@ -214,7 +214,7 @@ const wiced_bt_cfg_settings_t * hidd_cfg();
 ////////////////////////////////////////////////////////////////////////////////
 void hidd_start(wiced_result_t (*p_bt_app_init)(),
                       wiced_bt_management_cback_t   * p_bt_management_cback,
-                      const wiced_bt_cfg_settings_t * p_bt_cfg_settings,
+                      wiced_bt_cfg_settings_t * p_bt_cfg_settings,
                       const wiced_bt_cfg_buf_pool_t * p_bt_cfg_buf_pools);
 
 

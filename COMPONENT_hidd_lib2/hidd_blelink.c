@@ -55,11 +55,8 @@
 #include "wiced_memory.h"
 #include "hidd_lib.h"
 
-tBleHidLink hidd_blelink = {{15, 15, 20, 300}, 0, 0, };
+tBleHidLink blelink = {};
 
-static uint8_t wake_from_SDS_timer_timeout_flag = 0;
-static wiced_bool_t hidd_blelink_connection_param_updated = WICED_FALSE;
-static wiced_bt_ble_advert_mode_t BLE_adv_mode = BTM_BLE_ADVERT_OFF;
 
 #ifdef FATORY_TEST_SUPPORT
 uint8_t factory_mode = 0;
@@ -85,7 +82,7 @@ PLACE_DATA_IN_RETENTION_RAM blehid_aon_save_content_t   ble_aon_data;
 /////////////////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_set_adv_mode(wiced_bt_ble_advert_mode_t newMode)
 {
-    BLE_adv_mode = newMode;
+    blelink.adv_mode = newMode;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -94,25 +91,25 @@ void hidd_blelink_set_adv_mode(wiced_bt_ble_advert_mode_t newMode)
 void hidd_blelink_init()
 {
     ///connection idle timer that can be supported in uBCS mode
-    osapi_createTimer(&hidd_blelink.conn_idle_timer, hidd_blelink_connectionIdle_timerCb, 0);
+    osapi_createTimer(&blelink.conn_idle_timer, hidd_blelink_connectionIdle_timerCb, 0);
 
 #ifdef EASY_PAIR
     //timer for easy pair
-    wiced_init_timer( &hidd_blelink.easyPair_timer, hidd_blelink_easyPair_timerCb, 0, WICED_MILLI_SECONDS_TIMER );
+    wiced_init_timer( &blelink.easyPair_timer, hidd_blelink_easyPair_timerCb, 0, WICED_MILLI_SECONDS_TIMER );
 #endif
 
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
-    hidd_blelink.state_switch_timeout_in_ms = 1000; // 1 seconds
+    blelink.state_switch_timeout_in_ms = 1000; // 1 seconds
 
     /// timer to switch from DISCOVERABLE to HIDLINK_LE_ADVERTISING_IN_uBCS_UNDIRECTED
-    wiced_init_timer( &hidd_blelink.state_switch_timer, hidd_blelink_stateswitchtimerCb, 0, WICED_MILLI_SECONDS_TIMER );
+    wiced_init_timer( &blelink.state_switch_timer, hidd_blelink_stateswitchtimerCb, 0, WICED_MILLI_SECONDS_TIMER );
 
     ///discoverable timer that can be supported in uBCS mode
-    osapi_createTimer(&hidd_blelink.discoverable_timer, hidd_blelink_discoverabletimerCb, 0);
+    osapi_createTimer(&blelink.discoverable_timer, hidd_blelink_discoverabletimerCb, 0);
 #endif
 
 #ifdef AUTO_RECONNECT
-    hidd_blelink.auto_reconnect = WICED_TRUE;
+    blelink.auto_reconnect = WICED_TRUE;
 #endif
 
 }
@@ -149,7 +146,7 @@ void hidd_blelink_determine_next_state_on_boot(void)
 #ifdef START_ADV_WHEN_POWERUP_NO_CONNECTED
  #ifdef ALLOW_SDS_IN_DISCOVERABLE
         //For cold boot, give it more time before allowing SDS; otherwise, it might reset.
-        hidd_blelink.state_switch_timeout_in_ms = 5000; // 5 seconds. For cold boot, give it more time before allowing SDS; otherwise, it might reset.
+        blelink.state_switch_timeout_in_ms = 5000; // 5 seconds. For cold boot, give it more time before allowing SDS; otherwise, it might reset.
  #endif
         hidd_blelink_enterDiscoverable(WICED_TRUE);
 #endif
@@ -163,47 +160,47 @@ void hidd_blelink_determine_next_state_on_boot(void)
 void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
 {
     //restore embeded controller info for the LE link (peer device info, bonded, encrypted, connection parameters etc.)
-    memcpy(&emConInfo_devInfo, &hidd_blelink.resume_emconinfo, sizeof(EMCONINFO_DEVINFO));
+    memcpy(&emConInfo_devInfo, &blelink.resume_emconinfo, sizeof(EMCONINFO_DEVINFO));
 
     //check if osapi app timer timeout
-    if (hidd_blelink.osapi_app_timer_running)
+    if (blelink.osapi_app_timer_running)
     {
-        uint64_t time_passed_in_ms = (clock_SystemTimeMicroseconds64() - hidd_blelink.osapi_app_timer_start_instant)/1000;
+        uint64_t time_passed_in_ms = (clock_SystemTimeMicroseconds64() - blelink.osapi_app_timer_start_instant)/1000;
         //is it advertising timer?
-        if (hidd_blelink.osapi_app_timer_running & BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER)
+        if (blelink.osapi_app_timer_running & BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER)
         {
             // if time passed more than 60 seconds (adv timer timeout value)
             if (time_passed_in_ms >= 60000)
             {
                 WICED_BT_TRACE("\ndiscoverable timer timeout!!");
-                wake_from_SDS_timer_timeout_flag = BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER | 1;
+                blelink.wake_from_SDS_timer_timeout_flag = BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER | 1;
             }
         }
         //is it connection idle timer
-        else if (hidd_blelink.osapi_app_timer_running & BLEHIDLINK_CONNECTION_IDLE_TIMER)
+        else if (blelink.osapi_app_timer_running & BLEHIDLINK_CONNECTION_IDLE_TIMER)
         {
-            WICED_BT_TRACE("\nhidd_blelink.conn_idle_timeout=%d, time_passed_in_ms=%d", hidd_blelink.conn_idle_timeout, (uint32_t)time_passed_in_ms);
+            WICED_BT_TRACE("\nblelink.conn_idle_timeout=%d, time_passed_in_ms=%d", blelink.conn_idle_timeout, (uint32_t)time_passed_in_ms);
             // if time passed more than connection idle timeout value
-            if ((time_passed_in_ms >= hidd_blelink.conn_idle_timeout*1000) || ((hidd_blelink.conn_idle_timeout - time_passed_in_ms/1000) <= 1))
+            if ((time_passed_in_ms >= blelink.conn_idle_timeout*1000) || ((blelink.conn_idle_timeout - time_passed_in_ms/1000) <= 1))
             {
                 WICED_BT_TRACE("\nconnection idle timer timeout!!");
-                wake_from_SDS_timer_timeout_flag = BLEHIDLINK_CONNECTION_IDLE_TIMER | 1;
+                blelink.wake_from_SDS_timer_timeout_flag = BLEHIDLINK_CONNECTION_IDLE_TIMER | 1;
             }
             else
             {
-                uint64_t remaining_time_in_ms = hidd_blelink.conn_idle_timeout*1000 - time_passed_in_ms;
+                uint64_t remaining_time_in_ms = blelink.conn_idle_timeout*1000 - time_passed_in_ms;
                 //WICED_BT_TRACE("\ = %d", (uint32_t)remaining_time_in_ms);
                 //restart connection idle timer w/remaining time
-                osapi_activateTimer( &hidd_blelink.conn_idle_timer, remaining_time_in_ms*1000); //timout in micro seconds.
+                osapi_activateTimer( &blelink.conn_idle_timer, remaining_time_in_ms*1000); //timout in micro seconds.
             }
         }
 
-        hidd_blelink.osapi_app_timer_running = 0;
+        blelink.osapi_app_timer_running = 0;
     }
 
 #if is_SDS_capable && (defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || defined(ALLOW_SDS_IN_DISCOVERABLE))
-    if ((HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED == hidd_blelink.resumeState) ||
-        (HIDLINK_LE_ADVERTISING_IN_uBCS_UNDIRECTED == hidd_blelink.resumeState))
+    if ((HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED == blelink.resumeState) ||
+        (HIDLINK_LE_ADVERTISING_IN_uBCS_UNDIRECTED == blelink.resumeState))
     {
         //stop advertising.
         //NOTE: wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF) can't be used to stop advertising here.
@@ -216,7 +213,7 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
             WICED_BT_TRACE("\nwake from CONNECT req");
             if (!wiced_hal_batmon_is_low_battery_shutdown())
             {
-                if (hidd_host_isBonded() && (HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED == hidd_blelink.resumeState))
+                if (hidd_host_isBonded() && (HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED == blelink.resumeState))
                 {
                     hidd_blelink_enterReconnecting();
                 }
@@ -224,13 +221,13 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
                 {
  #ifdef WHITE_LIST_FOR_ADVERTISING
                     //if advertising white list is enabled before enter SDS
-                    if (hidd_host_isBonded() && hidd_blelink.adv_white_list_enabled)
+                    if (hidd_host_isBonded() && blelink.adv_white_list_enabled)
                     {
                         //add to white list
                         wiced_bt_ble_update_advertising_white_list(WICED_TRUE, hidd_host_addr());
 
                         //update advertising filer policy to use white list to filter scan and connect request
-                        wiced_btm_ble_update_advertisement_filter_policy(hidd_blelink.adv_white_list_enabled);
+                        wiced_btm_ble_update_advertisement_filter_policy(blelink.adv_white_list_enabled);
                     }
  #endif
                     hidd_blelink_enterDiscoverable(WICED_FALSE);
@@ -247,10 +244,10 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
 #endif
     {
         //set subState to resumeState
-        hidd_blelink_set_state(hidd_blelink.resumeState);
+        hidd_blelink_set_state(blelink.resumeState);
     }
 
-    if ((HIDLINK_LE_DISCONNECTED == hidd_blelink.subState) && !wiced_hal_batmon_is_low_battery_shutdown())
+    if ((HIDLINK_LE_DISCONNECTED == blelink.subState) && !wiced_hal_batmon_is_low_battery_shutdown())
     {
         //poll user activity and action accordingly
         if(link.callbacks->p_app_poll_user_activities)
@@ -260,11 +257,11 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
 
 #if is_SDS_capable && (defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || defined(ALLOW_SDS_IN_DISCOVERABLE))
         //if no user activity and not wake up due to application timer timeout. restart adv again
-        if ((HIDLINK_LE_DISCONNECTED == hidd_blelink.subState) && !wake_from_SDS_timer_timeout_flag)
+        if ((HIDLINK_LE_DISCONNECTED == blelink.subState) && !blelink.wake_from_SDS_timer_timeout_flag)
         {
  #ifdef ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED
             //if  it is bonded, start low duty cycle directed advertising again.
-            if (hidd_host_isBonded() && (HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED == hidd_blelink.resumeState))
+            if (hidd_host_isBonded() && (HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED == blelink.resumeState))
             {
                 //NOTE!!! wiced_bt_start_advertisement could modify the value of bdAddr, so MUST use a copy.
                 uint8_t tmp_bdAddr[BD_ADDR_LEN];
@@ -288,9 +285,9 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
         }
 #endif
     }
-    else if ((HIDLINK_LE_CONNECTED == hidd_blelink.subState) && !wiced_hal_batmon_is_low_battery_shutdown())
+    else if ((HIDLINK_LE_CONNECTED == blelink.subState) && !wiced_hal_batmon_is_low_battery_shutdown())
     {
-        if (wake_from_SDS_timer_timeout_flag & BLEHIDLINK_CONNECTION_IDLE_TIMER)
+        if (blelink.wake_from_SDS_timer_timeout_flag & BLEHIDLINK_CONNECTION_IDLE_TIMER)
         {
             //disconnect the link
             hidd_blelink_disconnect();
@@ -305,7 +302,7 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
 /////////////////////////////////////////////////////////////////////////////////////////////
 wiced_bt_ble_advert_mode_t hidd_blelink_get_adv_mode(void)
 {
-    return BLE_adv_mode;
+    return blelink.adv_mode;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -314,7 +311,7 @@ wiced_bt_ble_advert_mode_t hidd_blelink_get_adv_mode(void)
 void hidd_blelink_determine_next_state(void)
 {
     //always reset to 0
-    wake_from_SDS_timer_timeout_flag = 0;
+    blelink.wake_from_SDS_timer_timeout_flag = 0;
 
     if(!wiced_hal_mia_is_reset_reason_por())
     {
@@ -336,13 +333,13 @@ void hidd_blelink_determine_next_state(void)
 /////////////////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_connected(void)
 {
-    if (hidd_blelink.conn_idle_timeout)
+    if (blelink.conn_idle_timeout)
     {
         // start the connection idle timer
-        osapi_activateTimer( &hidd_blelink.conn_idle_timer, hidd_blelink.conn_idle_timeout * 1000000UL); //timout in micro seconds.
-        hidd_blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
-        hidd_blelink.osapi_app_timer_running |= BLEHIDLINK_CONNECTION_IDLE_TIMER;
-        hidd_blelink.osapi_app_timer_running |= 1;
+        osapi_activateTimer( &blelink.conn_idle_timer, blelink.conn_idle_timeout * 1000000UL); //timout in micro seconds.
+        blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
+        blelink.osapi_app_timer_running |= BLEHIDLINK_CONNECTION_IDLE_TIMER;
+        blelink.osapi_app_timer_running |= 1;
     }
 
     hidd_blelink_enterConnected();
@@ -354,18 +351,18 @@ void hidd_blelink_connected(void)
 void hidd_blelink_disconnected(void)
 {
     //stop the connection idle timer
-    osapi_deactivateTimer(&hidd_blelink.conn_idle_timer);
+    osapi_deactivateTimer(&blelink.conn_idle_timer);
 
-    hidd_blelink.osapi_app_timer_running &= ~BLEHIDLINK_CONNECTION_IDLE_TIMER;
-    if ((hidd_blelink.osapi_app_timer_running >> 1) == 0)
+    blelink.osapi_app_timer_running &= ~BLEHIDLINK_CONNECTION_IDLE_TIMER;
+    if ((blelink.osapi_app_timer_running >> 1) == 0)
     {
-        hidd_blelink.osapi_app_timer_running = 0; // no more application osapi timer is running
+        blelink.osapi_app_timer_running = 0; // no more application osapi timer is running
     }
 
 #ifdef AUTO_RECONNECT
     //reconnect back if bonded with host and not in the process of lowbattery shut down
     //and disconnect is not due to virtual cable unplug
-    if(hidd_blelink.auto_reconnect && !hidd_blelink.pendingStateTransiting)
+    if(blelink.auto_reconnect && !blelink.pendingStateTransiting)
         hidd_link_delayed_reconnect(500); //auto reconnect in 500 ms
 #endif
     //clear link encrypted flag when disconnected
@@ -383,12 +380,12 @@ void hidd_blelink_adv_stop(void)
 
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
     //stop discoverable timer
-    osapi_deactivateTimer(&hidd_blelink.discoverable_timer);
+    osapi_deactivateTimer(&blelink.discoverable_timer);
 
-    hidd_blelink.osapi_app_timer_running &= ~BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
-    if ((hidd_blelink.osapi_app_timer_running >> 1) == 0)
+    blelink.osapi_app_timer_running &= ~BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
+    if ((blelink.osapi_app_timer_running >> 1) == 0)
     {
-        hidd_blelink.osapi_app_timer_running = 0; // no more application osapi timer is running
+        blelink.osapi_app_timer_running = 0; // no more application osapi timer is running
     }
 #endif
 
@@ -398,10 +395,10 @@ void hidd_blelink_adv_stop(void)
         hidd_blelink_set_state(HIDLINK_LE_DISCONNECTED);
     }
 
-    if (hidd_blelink.second_conn_state == BLEHIDLINK_2ND_CONNECTION_ALLOWED)
+    if (blelink.second_conn_state == BLEHIDLINK_2ND_CONNECTION_ALLOWED)
     {
         //set 2nd connection state to default
-        hidd_blelink.second_conn_state = BLEHIDLINK_2ND_CONNECTION_NOT_ALLOWED;
+        blelink.second_conn_state = BLEHIDLINK_2ND_CONNECTION_NOT_ALLOWED;
     }
 }
 
@@ -420,7 +417,7 @@ void hidd_blelink_directed_adv_stop(void)
     //update advertising filer policy to use white list to filter scan and connect request
     wiced_btm_ble_update_advertisement_filter_policy(0x03);
 
-    hidd_blelink.adv_white_list_enabled = 0x03;
+    blelink.adv_white_list_enabled = 0x03;
  #endif
 
     // start undirected connectable advertising.
@@ -428,10 +425,10 @@ void hidd_blelink_directed_adv_stop(void)
         WICED_BT_TRACE("\nFailed to undirected connectable advertising!!!");
 
  #ifdef ALLOW_SDS_IN_DISCOVERABLE
-    osapi_activateTimer( &hidd_blelink.discoverable_timer, 60000000UL); //60 seconds. timout in micro seconds.
-    hidd_blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
-    hidd_blelink.osapi_app_timer_running |= BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
-    hidd_blelink.osapi_app_timer_running |= 1;
+    osapi_activateTimer( &blelink.discoverable_timer, 60000000UL); //60 seconds. timout in micro seconds.
+    blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
+    blelink.osapi_app_timer_running |= BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
+    blelink.osapi_app_timer_running |= 1;
 
     hidd_blelink_set_state(HIDLINK_LE_ADVERTISING_IN_uBCS_UNDIRECTED);
  #endif
@@ -445,7 +442,7 @@ void hidd_blelink_directed_adv_stop(void)
 /////////////////////////////////////////////////////////////////////////////////
 wiced_bool_t  hidd_blelink_state_is(uint8_t state)
 {
-    return (hidd_blelink.subState == state);
+    return (blelink.subState == state);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -456,25 +453,25 @@ void hidd_blelink_connect(void)
 {
     if(hidd_host_isBonded())
     {
-        switch(hidd_blelink.subState)
+        switch(blelink.subState)
         {
             case HIDLINK_LE_DISCONNECTED:
                 hidd_blelink_enterReconnecting();
                 break;
             default:
-                 //WICED_BT_TRACE("\nhidd_blelink_connect(bonded):%d",hidd_blelink.subState);
+                 //WICED_BT_TRACE("\nhidd_blelink_connect(bonded):%d",blelink.subState);
                 break;
         }
     }
     else
     {
-        switch(hidd_blelink.subState)
+        switch(blelink.subState)
         {
             case HIDLINK_LE_DISCONNECTED:
                 hidd_blelink_enterDiscoverable(WICED_TRUE);
                 break;
             default:
-                //WICED_BT_TRACE("\nhidd_blelink_connect(not bonded):%d",hidd_blelink.subState);
+                //WICED_BT_TRACE("\nhidd_blelink_connect(not bonded):%d",blelink.subState);
                 break;
         }
     }
@@ -485,7 +482,7 @@ void hidd_blelink_connect(void)
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_disconnect(void)
 {
-    wiced_bt_gatt_disconnect(hidd_blelink.gatts_conn_id);
+    wiced_bt_gatt_disconnect(blelink.gatts_conn_id);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -503,8 +500,8 @@ void hidd_blelink_add_state_observer(wiced_ble_hidd_state_change_callback_t* obs
     if(ob)
     {
         ob->callback = observer;
-        ob->next = hidd_blelink.firstStateObserver;
-        hidd_blelink.firstStateObserver = ob;
+        ob->next = blelink.firstStateObserver;
+        blelink.firstStateObserver = ob;
     }
 }
 
@@ -526,18 +523,18 @@ void hidd_blelink_enterDisconnected(void)
     hidd_link_delayed_reconnect(AUTO_RECONNECT_DELAY);
 #endif
 
-    if (hidd_blelink.pendingStateTransiting)
+    if (blelink.pendingStateTransiting)
     {
-        hidd_blelink.pendingStateTransiting = 0;
-        if (hidd_blelink.stateTransitingFunc)
+        blelink.pendingStateTransiting = 0;
+        if (blelink.stateTransitingFunc)
         {
-            hidd_blelink.stateTransitingFunc(1);
+            blelink.stateTransitingFunc(1);
         }
     }
 }
 
 /////////////////////////////////////////////////////////////////////////////////
-/// become discoverable. i.e. start connectable undirected advertising
+/// become discoverablelink. i.e. start connectable undirected advertising
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_enterDiscoverable(uint32_t SDS_allow)
 {
@@ -562,23 +559,23 @@ void hidd_blelink_enterDiscoverable(uint32_t SDS_allow)
     hidd_blelink_set_state(HIDLINK_LE_DISCOVERABLE);
 
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
-    osapi_activateTimer( &hidd_blelink.discoverable_timer, 60000000UL); //60 seconds. timout in micro seconds.
-    hidd_blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
-    hidd_blelink.osapi_app_timer_running |= BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
-    hidd_blelink.osapi_app_timer_running |= 1;
+    osapi_activateTimer( &blelink.discoverable_timer, 60000000UL); //60 seconds. timout in micro seconds.
+    blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
+    blelink.osapi_app_timer_running |= BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
+    blelink.osapi_app_timer_running |= 1;
 
     if (SDS_allow)
     {
         //switch to advertising w/ SDS after 1 second
-        if (wiced_is_timer_in_use(&hidd_blelink.state_switch_timer))
+        if (wiced_is_timer_in_use(&blelink.state_switch_timer))
         {
-            wiced_stop_timer(&hidd_blelink.state_switch_timer);
+            wiced_stop_timer(&blelink.state_switch_timer);
         }
-        wiced_start_timer(&hidd_blelink.state_switch_timer,hidd_blelink.state_switch_timeout_in_ms);
+        wiced_start_timer(&blelink.state_switch_timer,blelink.state_switch_timeout_in_ms);
     }
 
     //set it back to 1 second
-    hidd_blelink.state_switch_timeout_in_ms = 1000; // 1 second
+    blelink.state_switch_timeout_in_ms = 1000; // 1 second
 #endif
 
 }
@@ -591,7 +588,7 @@ void hidd_blelink_allowDiscoverable(void)
     WICED_BT_TRACE("\nallowDiscoverable");
 
     //do nothing if we are in DISCOVERABLE state alreay
-    if (hidd_blelink.second_conn_state || (hidd_blelink.subState == HIDLINK_LE_DISCOVERABLE))
+    if (blelink.second_conn_state || (blelink.subState == HIDLINK_LE_DISCOVERABLE))
         return;
 
     //stop advertising anyway
@@ -601,17 +598,17 @@ void hidd_blelink_allowDiscoverable(void)
     //set advertising filer policy to default (white list is not used)
     wiced_btm_ble_update_advertisement_filter_policy(0);
 
-    hidd_blelink.adv_white_list_enabled = 0;
+    blelink.adv_white_list_enabled = 0;
 #endif
 
-    if (hidd_blelink.subState != HIDLINK_LE_CONNECTED)
+    if (blelink.subState != HIDLINK_LE_CONNECTED)
     {
         hidd_blelink_enterDiscoverable(WICED_TRUE);
     }
     else
     {
         //save the existing connection's info
-        memcpy(&hidd_blelink.existing_emconinfo, &emConInfo_devInfo, sizeof(EMCONINFO_DEVINFO));
+        memcpy(&blelink.existing_emconinfo, &emConInfo_devInfo, sizeof(EMCONINFO_DEVINFO));
 
         // start undirected connectable advertising.
         if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_UNDIRECTED_LOW, 0, NULL))
@@ -619,12 +616,12 @@ void hidd_blelink_allowDiscoverable(void)
 
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
         //start discoverable timer in normal mode
-        osapi_activateTimer( &hidd_blelink.discoverable_timer, 60000000UL); //60 seconds. timout in micro seconds.
-        hidd_blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
-        hidd_blelink.osapi_app_timer_running |= BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
-        hidd_blelink.osapi_app_timer_running = 1;
+        osapi_activateTimer( &blelink.discoverable_timer, 60000000UL); //60 seconds. timout in micro seconds.
+        blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
+        blelink.osapi_app_timer_running |= BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
+        blelink.osapi_app_timer_running = 1;
 #endif
-        hidd_blelink.second_conn_state = BLEHIDLINK_2ND_CONNECTION_ALLOWED;
+        blelink.second_conn_state = BLEHIDLINK_2ND_CONNECTION_ALLOWED;
     }
 }
 
@@ -635,12 +632,12 @@ void hidd_blelink_allowDiscoverable(void)
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_set_state(uint8_t newState)
 {
-    LinkStateObserver* tmpObs = hidd_blelink.firstStateObserver;
+    LinkStateObserver* tmpObs = blelink.firstStateObserver;
 
-    if(newState != hidd_blelink.subState)
+    if(newState != blelink.subState)
     {
-        WICED_BT_TRACE("\nLE state changed from %s to %s ", hidd_link_state_str(hidd_blelink.subState), hidd_link_state_str(newState));
-        hidd_blelink.subState = newState;
+        WICED_BT_TRACE("\nLE state changed from %s to %s ", hidd_link_state_str(blelink.subState), hidd_link_state_str(newState));
+        blelink.subState = newState;
 
         hci_control_send_state_change(BT_TRANSPORT_LE, newState);
 
@@ -666,16 +663,16 @@ void hidd_blelink_enterConnected(void)
 
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
     //stop discoverable timer
-    osapi_deactivateTimer(&hidd_blelink.discoverable_timer);
+    osapi_deactivateTimer(&blelink.discoverable_timer);
 
-    hidd_blelink.osapi_app_timer_running &= ~BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
-    if ((hidd_blelink.osapi_app_timer_running >> 1) == 0)
+    blelink.osapi_app_timer_running &= ~BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
+    if ((blelink.osapi_app_timer_running >> 1) == 0)
     {
-        hidd_blelink.osapi_app_timer_running = 0; // no more application osapi timer is running
+        blelink.osapi_app_timer_running = 0; // no more application osapi timer is running
     }
 #endif
 
-    hidd_host_setAddrType(hidd_blelink.gatts_peer_addr, hidd_blelink.gatts_peer_addr_type);
+    hidd_host_setAddrType(blelink.gatts_peer_addr, blelink.gatts_peer_addr_type);
 
     // if dev does not agree with our setting, we change both to bonded
     if (wiced_blehidd_is_device_bonded() ^ hidd_host_isBonded())
@@ -703,7 +700,7 @@ void hidd_blelink_enterConnected(void)
         if (!wiced_blehidd_is_device_bonded())
         {
             WICED_BT_TRACE("\nsend security req:");
-            wiced_bt_dev_sec_bond(hidd_blelink.gatts_peer_addr, hidd_blelink.gatts_peer_addr_type, BT_TRANSPORT_LE, 0, NULL);
+            wiced_bt_dev_sec_bond(blelink.gatts_peer_addr, blelink.gatts_peer_addr_type, BT_TRANSPORT_LE, 0, NULL);
         }
     }
 }
@@ -801,7 +798,7 @@ void hidd_blelink_enable_poll_callback(wiced_bool_t enable)
 /////////////////////////////////////////////////////////////////////////////////
 uint8_t hidd_blelink_send_report(uint8_t reportID, wiced_hidd_report_type_t reportType, uint8_t *data, uint8_t length)
 {
-    wiced_bt_gatt_status_t rptSentStatus = wiced_blehidd_send_report(hidd_blelink.gatts_conn_id, reportID, reportType, data, length);
+    wiced_bt_gatt_status_t rptSentStatus = wiced_blehidd_send_report(blelink.gatts_conn_id, reportID, reportType, data, length);
 
     if(rptSentStatus)
     {
@@ -821,12 +818,12 @@ uint8_t hidd_blelink_send_report(uint8_t reportID, wiced_hidd_report_type_t repo
     hidd_deep_sleep_not_allowed(1000);// No deep sleep for 1 second.
 
     // Whenever there is an activity, restart the connection idle timer
-    if (hidd_blelink.conn_idle_timeout)
+    if (blelink.conn_idle_timeout)
     {
-        osapi_activateTimer( &hidd_blelink.conn_idle_timer, hidd_blelink.conn_idle_timeout * 1000000UL); //timout in micro seconds.
-        hidd_blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
-        hidd_blelink.osapi_app_timer_running |= BLEHIDLINK_CONNECTION_IDLE_TIMER;
-        hidd_blelink.osapi_app_timer_running |= 1;
+        osapi_activateTimer( &blelink.conn_idle_timer, blelink.conn_idle_timeout * 1000000UL); //timout in micro seconds.
+        blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
+        blelink.osapi_app_timer_running |= BLEHIDLINK_CONNECTION_IDLE_TIMER;
+        blelink.osapi_app_timer_running |= 1;
     }
 
     return rptSentStatus;
@@ -867,27 +864,27 @@ void hidd_blelink_virtual_cable_unplug(void)
     //set advertising filer policy to default (white list not used)
     wiced_btm_ble_update_advertisement_filter_policy(0);
 
-    hidd_blelink.adv_white_list_enabled = 0;
+    blelink.adv_white_list_enabled = 0;
 #endif
 
-    if (hidd_blelink.subState == HIDLINK_LE_CONNECTED)
+    if (blelink.subState == HIDLINK_LE_CONNECTED)
     {
 
 #ifdef EASY_PAIR
-        hidd_blelink.pendingStateTransiting = 1;
-        hidd_blelink.stateTransitingFunc = hidd_blelink_easyPair;
+        blelink.pendingStateTransiting = 1;
+        blelink.stateTransitingFunc = hidd_blelink_easyPair;
 #else
-        hidd_blelink.pendingStateTransiting = 0;
-        hidd_blelink.stateTransitingFunc = NULL;
+        blelink.pendingStateTransiting = 0;
+        blelink.stateTransitingFunc = NULL;
  #ifdef ALLOW_SDS_IN_DISCOVERABLE
         //For virtual cable unplug, give it more time before allowing SDS; otherwise, it might reset.
-        hidd_blelink.state_switch_timeout_in_ms = 5000; // 5 seconds.  give it more time before allowing SDS; otherwise, it might reset.
+        blelink.state_switch_timeout_in_ms = 5000; // 5 seconds.  give it more time before allowing SDS; otherwise, it might reset.
  #endif
 #endif
         //disconnect the link
         hidd_blelink_disconnect();
     }
-    else if (hidd_blelink.subState == HIDLINK_LE_RECONNECTING)
+    else if (blelink.subState == HIDLINK_LE_RECONNECTING)
     {
         wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
 
@@ -898,7 +895,7 @@ void hidd_blelink_virtual_cable_unplug(void)
 #endif
 
     }
-    else if (hidd_blelink.subState != HIDLINK_LE_DISCOVERABLE)
+    else if (blelink.subState != HIDLINK_LE_DISCOVERABLE)
     {
 #ifdef EASY_PAIR
         hidd_blelink_easyPair(0);
@@ -912,22 +909,11 @@ void hidd_blelink_virtual_cable_unplug(void)
 }
 
 /////////////////////////////////////////////////////////////////////////////////
-/// set ble HID link prefered conneciton parameters
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_set_preferred_conn_params(uint16_t conn_min_interval, uint16_t conn_max_interval, uint16_t slavelatency, uint16_t timeout)
-{
-    hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN]  = conn_min_interval;
-    hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MAX]  = conn_max_interval;
-    hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY] = slavelatency;
-    hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_TIMEOUT]       = timeout;
-}
-
-/////////////////////////////////////////////////////////////////////////////////
 /// set ble HID link connection Idle timer timeout value in seconds (default is 0, i.e. no timeout)
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_set_connection_Idle_timeout_value(uint16_t value)
 {
-    hidd_blelink.conn_idle_timeout  = value;
+    blelink.conn_idle_timeout  = value;
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -939,14 +925,14 @@ void hidd_blelink_set_slave_latency(uint16_t slaveLatencyinmS)
 {
     UINT16 latency_plus_one = slaveLatencyinmS/wiced_blehidd_get_connection_interval() * 4/5;
 
-    hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY] = latency_plus_one - 1;
-    hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN] =
-    hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MAX] = wiced_blehidd_get_connection_interval();
+    hidd_cfg()->ble_scan_cfg.conn_latency = latency_plus_one - 1;
+    hidd_cfg()->ble_scan_cfg.conn_min_interval =
+    hidd_cfg()->ble_scan_cfg.conn_max_interval = wiced_blehidd_get_connection_interval();
 
     WICED_BT_TRACE("\nhidd_blelink_set_slave_latency: interval=%d, slavelatency=%d",
-               hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN],
-               hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY]);
-    wiced_blehidd_set_asym_slave_latency(wiced_blehidd_get_connection_handle(), hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY]);
+               hidd_cfg()->ble_scan_cfg.conn_min_interval,
+               hidd_cfg()->ble_scan_cfg.conn_latency);
+    wiced_blehidd_set_asym_slave_latency(wiced_blehidd_get_connection_handle(), hidd_cfg()->ble_scan_cfg.conn_latency);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -954,7 +940,7 @@ void hidd_blelink_set_slave_latency(uint16_t slaveLatencyinmS)
 /////////////////////////////////////////////////////////////////////////////////
 wiced_bool_t hidd_blelink_conn_param_updated()
 {
-    return hidd_blelink_connection_param_updated;
+    return blelink.connection_param_updated;
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -966,19 +952,19 @@ void hidd_blelink_conn_update_complete(void)
                  wiced_blehidd_get_connection_interval(),wiced_blehidd_get_slave_latency(),wiced_blehidd_get_supervision_timeout());
 
 #ifndef  SKIP_CONNECT_PARAM_UPDATE_EVEN_IF_NO_PREFERED
-    if ((wiced_blehidd_get_connection_interval() < hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN]) ||
-        (wiced_blehidd_get_connection_interval() > hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MAX]) ||
-        (wiced_blehidd_get_slave_latency() != hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY]))
+    if ((wiced_blehidd_get_connection_interval() < hidd_cfg()->ble_scan_cfg.conn_min_interval) ||
+        (wiced_blehidd_get_connection_interval() > hidd_cfg()->ble_scan_cfg.conn_max_interval) ||
+        (wiced_blehidd_get_slave_latency() != hidd_cfg()->ble_scan_cfg.conn_latency))
     {
 #ifdef ASSYM_SLAVE_LATENCY
         //if actual slavelatency is smaller than desired slave latency, set asymmetric slave latency in the slave side
         if (wiced_blehidd_get_connection_interval()*(wiced_blehidd_get_slave_latency() + 1) <
-                hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN] * (hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY] + 1))
-            hidd_blelink_set_slave_latency(hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN]*(hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY]+1)*5/4);
+                hidd_cfg()->ble_scan_cfg.conn_min_interval * (hidd_cfg()->ble_scan_cfg.conn_latency + 1))
+            hidd_blelink_set_slave_latency(hidd_cfg()->ble_scan_cfg.conn_min_interval*(hidd_cfg()->ble_scan_cfg.conn_latency+1)*5/4);
 #else
         hidd_blelink_conn_param_update();
 #endif
-        hidd_blelink_connection_param_updated = WICED_TRUE;
+        blelink.connection_param_updated = WICED_TRUE;
     }
 #endif
 }
@@ -988,18 +974,18 @@ void hidd_blelink_conn_update_complete(void)
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_conn_param_update(void)
 {
-    if ((wiced_blehidd_get_connection_interval() < hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN]) ||
-            (wiced_blehidd_get_connection_interval() > hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MAX]) ||
-            (wiced_blehidd_get_slave_latency() != hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY]))
+    if ((wiced_blehidd_get_connection_interval() < hidd_cfg()->ble_scan_cfg.conn_min_interval) ||
+            (wiced_blehidd_get_connection_interval() > hidd_cfg()->ble_scan_cfg.conn_max_interval) ||
+            (wiced_blehidd_get_slave_latency() != hidd_cfg()->ble_scan_cfg.conn_latency))
     {
         WICED_BT_TRACE("\nsend conn param request");
-        wiced_bt_l2cap_update_ble_conn_params(hidd_blelink.gatts_peer_addr,
-                          hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MIN],
-                          hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_INTERVAL_MAX],
-                          hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_SLAVE_LATENCY],
-                          hidd_blelink.prefered_conn_params[BLEHIDLINK_CONN_TIMEOUT]);
+        wiced_bt_l2cap_update_ble_conn_params(blelink.gatts_peer_addr,
+                          hidd_cfg()->ble_scan_cfg.conn_min_interval,
+                          hidd_cfg()->ble_scan_cfg.conn_max_interval,
+                          hidd_cfg()->ble_scan_cfg.conn_latency,
+                          hidd_cfg()->ble_scan_cfg.conn_supervision_timeout);
     }
-    hidd_blelink_connection_param_updated = WICED_TRUE;
+    blelink.connection_param_updated = WICED_TRUE;
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -1026,26 +1012,26 @@ void hidd_blelink_aon_action_handler(uint8_t  type)
     {
         WICED_BT_TRACE("\nWICED_BT_AON_DRIVER_RESTORE");
 
-        hidd_blelink.resumeState = ble_aon_data.hidd_blelink_state;
-        hidd_blelink.gatts_conn_id = ble_aon_data.gatts_conn_id;
-        hidd_blelink.gatts_peer_addr_type = ble_aon_data.gatts_peer_addr_type;
-        memcpy(hidd_blelink.gatts_peer_addr, ble_aon_data.gatts_peer_addr, BD_ADDR_LEN);
+        blelink.resumeState = ble_aon_data.hidd_blelink_state;
+        blelink.gatts_conn_id = ble_aon_data.gatts_conn_id;
+        blelink.gatts_peer_addr_type = ble_aon_data.gatts_peer_addr_type;
+        memcpy(blelink.gatts_peer_addr, ble_aon_data.gatts_peer_addr, BD_ADDR_LEN);
 
         //restore emconinfo
-        hidd_blelink.resume_emconinfo.connHandle = ble_aon_data.emconinfo.connHandle;
-        hidd_blelink.resume_emconinfo.flag       = ble_aon_data.emconinfo.flag;
-        hidd_blelink.resume_emconinfo.peerAddressType = ble_aon_data.emconinfo.peerAddressType;
-        memcpy(hidd_blelink.resume_emconinfo.peerAddress, ble_aon_data.emconinfo.peerAddress, BD_ADDR_LEN);
-        hidd_blelink.resume_emconinfo.connInterval = ble_aon_data.emconinfo.connInterval;
-        hidd_blelink.resume_emconinfo.connLatency  = ble_aon_data.emconinfo.connLatency;
-        hidd_blelink.resume_emconinfo.supervisionTimeout = ble_aon_data.emconinfo.supervisionTimeout;
+        blelink.resume_emconinfo.connHandle = ble_aon_data.emconinfo.connHandle;
+        blelink.resume_emconinfo.flag       = ble_aon_data.emconinfo.flag;
+        blelink.resume_emconinfo.peerAddressType = ble_aon_data.emconinfo.peerAddressType;
+        memcpy(blelink.resume_emconinfo.peerAddress, ble_aon_data.emconinfo.peerAddress, BD_ADDR_LEN);
+        blelink.resume_emconinfo.connInterval = ble_aon_data.emconinfo.connInterval;
+        blelink.resume_emconinfo.connLatency  = ble_aon_data.emconinfo.connLatency;
+        blelink.resume_emconinfo.supervisionTimeout = ble_aon_data.emconinfo.supervisionTimeout;
 
         //restore application timer info
-        hidd_blelink.osapi_app_timer_start_instant = ble_aon_data.osapi_app_timer_start_instant;
-        hidd_blelink.osapi_app_timer_running = ble_aon_data.osapi_app_timer_running;
+        blelink.osapi_app_timer_start_instant = ble_aon_data.osapi_app_timer_start_instant;
+        blelink.osapi_app_timer_running = ble_aon_data.osapi_app_timer_running;
 
 #ifdef WHITE_LIST_FOR_ADVERTISING
-        hidd_blelink.adv_white_list_enabled = ble_aon_data.adv_white_list_enabled;
+        blelink.adv_white_list_enabled = ble_aon_data.adv_white_list_enabled;
 #endif
     }
     else
@@ -1054,10 +1040,10 @@ void hidd_blelink_aon_action_handler(uint8_t  type)
         // save all output GPIO values in the saved cfgs before entering uBCS mode
         wiced_hal_gpio_slimboot_reenforce_outputpin_value();
 
-        ble_aon_data.hidd_blelink_state = hidd_blelink.subState;
-        ble_aon_data.gatts_conn_id = hidd_blelink.gatts_conn_id;
-        ble_aon_data.gatts_peer_addr_type = hidd_blelink.gatts_peer_addr_type;
-        memcpy(ble_aon_data.gatts_peer_addr, hidd_blelink.gatts_peer_addr, BD_ADDR_LEN);
+        ble_aon_data.hidd_blelink_state = blelink.subState;
+        ble_aon_data.gatts_conn_id = blelink.gatts_conn_id;
+        ble_aon_data.gatts_peer_addr_type = blelink.gatts_peer_addr_type;
+        memcpy(ble_aon_data.gatts_peer_addr, blelink.gatts_peer_addr, BD_ADDR_LEN);
 
         //save emconinfo
         ble_aon_data.emconinfo.connHandle = emConInfo_devInfo.connHandle;
@@ -1069,11 +1055,11 @@ void hidd_blelink_aon_action_handler(uint8_t  type)
         ble_aon_data.emconinfo.supervisionTimeout = emConInfo_devInfo.supervisionTimeout;
 
         //save application timer info
-        ble_aon_data.osapi_app_timer_start_instant = hidd_blelink.osapi_app_timer_start_instant;
-        ble_aon_data.osapi_app_timer_running = hidd_blelink.osapi_app_timer_running;
+        ble_aon_data.osapi_app_timer_start_instant = blelink.osapi_app_timer_start_instant;
+        ble_aon_data.osapi_app_timer_running = blelink.osapi_app_timer_running;
 
 #ifdef WHITE_LIST_FOR_ADVERTISING
-        ble_aon_data.adv_white_list_enabled = hidd_blelink.adv_white_list_enabled;
+        ble_aon_data.adv_white_list_enabled = blelink.adv_white_list_enabled;
 #endif
 #endif
     }
@@ -1087,7 +1073,7 @@ void hidd_blelink_aon_action_handler(uint8_t  type)
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_stateswitchtimerCb( uint32_t arg)
 {
-    if (HIDLINK_LE_DISCOVERABLE == hidd_blelink.subState)
+    if (HIDLINK_LE_DISCOVERABLE == blelink.subState)
     {
         hidd_blelink_set_state(HIDLINK_LE_ADVERTISING_IN_uBCS_UNDIRECTED);
     }
@@ -1112,9 +1098,9 @@ void hidd_blelink_discoverabletimerCb(INT32 args, UINT32 overTimeInUs)
 /////////////////////////////////////////////////////////////////////////////////
 void easyPairInit()
 {
-    hidd_blelink.easyPair_deviceIndex = INVALID_INDEX;
-    hidd_blelink.easyPair.availableSlots = MAX_DEVICES;
-    memset((void*)&hidd_blelink.easyPair.device[0], 0, sizeof(EASY_PAIR_CANDIDATE)*MAX_DEVICES);
+    blelink.easyPair_deviceIndex = INVALID_INDEX;
+    blelink.easyPair.availableSlots = MAX_DEVICES;
+    memset((void*)&blelink.easyPair.device[0], 0, sizeof(EASY_PAIR_CANDIDATE)*MAX_DEVICES);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -1132,14 +1118,14 @@ uint8_t easyPairCheckExistDevices(wiced_bt_ble_scan_results_t *p_scan_result)
     for(j = 0; j < MAX_DEVICES; j++)
     {
         //check to see if device i is valid
-        if(hidd_blelink.easyPair.device[j].valid == VALID_ID)
+        if(blelink.easyPair.device[j].valid == VALID_ID)
         {
             //if so, check to see if bd addr matches
-            if(!memcmp( p_scan_result->remote_bd_addr , hidd_blelink.easyPair.device[j].wd_addr , BD_ADDR_LEN))
+            if(!memcmp( p_scan_result->remote_bd_addr , blelink.easyPair.device[j].wd_addr , BD_ADDR_LEN))
             {
                 //sum the rssi
-                hidd_blelink.easyPair.device[j].rssi_total += p_scan_result->rssi;
-                hidd_blelink.easyPair.device[j].rssi_count++;
+                blelink.easyPair.device[j].rssi_total += p_scan_result->rssi;
+                blelink.easyPair.device[j].rssi_count++;
                 return 1;
             }
         }
@@ -1208,15 +1194,15 @@ void hidd_blelink_easyPair_scan_result_cback( wiced_bt_ble_scan_results_t *p_sca
             }
 
             //if there is a room, add the device
-            if(hidd_blelink.easyPair.availableSlots != 0)
+            if(blelink.easyPair.availableSlots != 0)
             {
-                temp = MAX_DEVICES - hidd_blelink.easyPair.availableSlots;
-                hidd_blelink.easyPair.device[temp].addressType = p_scan_result->ble_addr_type;
-                memcpy(hidd_blelink.easyPair.device[temp].wd_addr, p_scan_result->remote_bd_addr, BD_ADDR_LEN);
-                hidd_blelink.easyPair.device[temp].rssi_total =  p_scan_result->rssi;
-                hidd_blelink.easyPair.device[temp].rssi_count++;
-                hidd_blelink.easyPair.device[temp].valid = VALID_ID;
-                hidd_blelink.easyPair.availableSlots--;
+                temp = MAX_DEVICES - blelink.easyPair.availableSlots;
+                blelink.easyPair.device[temp].addressType = p_scan_result->ble_addr_type;
+                memcpy(blelink.easyPair.device[temp].wd_addr, p_scan_result->remote_bd_addr, BD_ADDR_LEN);
+                blelink.easyPair.device[temp].rssi_total =  p_scan_result->rssi;
+                blelink.easyPair.device[temp].rssi_count++;
+                blelink.easyPair.device[temp].valid = VALID_ID;
+                blelink.easyPair.availableSlots--;
             }
         }
 
@@ -1224,12 +1210,12 @@ void hidd_blelink_easyPair_scan_result_cback( wiced_bt_ble_scan_results_t *p_sca
     else
     {
         WICED_BT_TRACE("\nScan completed" );
-        if (hidd_blelink.easyPair_deviceIndex != INVALID_INDEX)
+        if (blelink.easyPair_deviceIndex != INVALID_INDEX)
         {
             // start high duty cycle directed advertising.
             wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_HIGH,
-                                       hidd_blelink.easyPair.device[hidd_blelink.easyPair_deviceIndex].addressType,
-                                       hidd_blelink.easyPair.device[hidd_blelink.easyPair_deviceIndex].wd_addr);
+                                       blelink.easyPair.device[blelink.easyPair_deviceIndex].addressType,
+                                       blelink.easyPair.device[blelink.easyPair_deviceIndex].wd_addr);
 
             hidd_blelink_set_state(HIDLINK_LE_RECONNECTING);
 
@@ -1258,18 +1244,18 @@ void hidd_blelink_easyPair_timerCb(uint32_t arg)
     WICED_BT_TRACE("\nhidd_blelink_easyPair_timerCb");
 
     //stop timer
-    if (wiced_is_timer_in_use(&hidd_blelink.easyPair_timer))
+    if (wiced_is_timer_in_use(&blelink.easyPair_timer))
     {
-        wiced_stop_timer(&hidd_blelink.easyPair_timer);
+        wiced_stop_timer(&blelink.easyPair_timer);
     }
 
     // find the average rssi of each device and
     // also find which one has the highest rssi to connect to
     for(i = 0; i < MAX_DEVICES; i++)
     {
-        if(hidd_blelink.easyPair.device[i].valid == VALID_ID)
+        if(blelink.easyPair.device[i].valid == VALID_ID)
         {
-                rssi_avg = hidd_blelink.easyPair.device[i].rssi_total / hidd_blelink.easyPair.device[i].rssi_count;
+                rssi_avg = blelink.easyPair.device[i].rssi_total / blelink.easyPair.device[i].rssi_count;
 
                 if( rssi_avg > highest_rssi)
                 {
@@ -1283,7 +1269,7 @@ void hidd_blelink_easyPair_timerCb(uint32_t arg)
     // device with highest rssi
     if(highest_rssi_index != INVALID_INDEX)
     {
-        hidd_blelink.easyPair_deviceIndex = highest_rssi_index;
+        blelink.easyPair_deviceIndex = highest_rssi_index;
     }
 
     //turn off scans
@@ -1299,7 +1285,7 @@ void hidd_blelink_easyPair_scan(void)
     wiced_bt_ble_scan(BTM_BLE_SCAN_TYPE_HIGH_DUTY, 0, hidd_blelink_easyPair_scan_result_cback);
 
     //start easy pair scan timer
-    wiced_start_timer(&hidd_blelink.easyPair_timer, EASY_PAIR_SCAN_TIMEOUT *1000); // start 5 seconds timer. timeout in ms
+    wiced_start_timer(&blelink.easyPair_timer, EASY_PAIR_SCAN_TIMEOUT *1000); // start 5 seconds timer. timeout in ms
 }
 
 /////////////////////////////////////////////////////////////////////////////////

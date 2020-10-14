@@ -250,46 +250,6 @@ void hidd_btlink_determine_next_state(void)
     }
 }
 
-#if 0
-/////////////////////////////////////////////////////////////////////////////////////////////
-/// determine next action when wake from SDS
-/////////////////////////////////////////////////////////////////////////////////////////////
-void hidd_btlink_determine_next_state_on_wake_from_SDS(void)
-{
-    //set subState to resumeState
-    hidd_btlink_setState(bt_hidd_link.resumeState);
-
-    if ((HIDLINK_DISCONNECTED == bt_hidd_link.subState) && !wiced_hal_batmon_is_low_battery_shutdown())
-    {
-        //poll user activity and act accordingly
-        if (link.callbacks && link.callbacks->p_app_poll_user_activities)
-        {
-            link.callbacks->p_app_poll_user_activities();
-        }
-    }
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////
-/// determine next action on power uo (cold boot or wake from SDS)
-/////////////////////////////////////////////////////////////////////////////////////////////
-void hidd_btlink_determine_next_state_on_powerup(void)
-{
-    if(!wiced_hal_mia_is_reset_reason_por())
-    {
-        WICED_BT_TRACE("\nwake from SDS");
-        hidd_btlink_determine_next_state_on_wake_from_SDS();
-    }
-    else
-    {
-        WICED_BT_TRACE("\ncold boot");
-        hidd_btlink_determine_next_state();
-    }
-
-    //always reset to 0
-    wake_from_SDS_timer_timeout_flag = 0;
-}
-#endif
-
 ///////////////////////////////////////////////////////////////////////////////
 /// Enables page scans. This is done by calling BTM methods to set
 /// connectability
@@ -704,7 +664,7 @@ void hidd_btlink_disconnect(void)
 /// the interrupt channel just came up. As we just connected, this clears
 /// any pending connect requests.
 /// The behavior per state is:
-///  - INITIALIZED: Impossible. Ignore.
+///  - INITIALIZED: Impossible. Ignored.
 ///  - DISCONNECTED: Impossible. Enter disconnecting to get back to known good state
 ///  - DISCOVERABLE: We were just virtually cabled. Add the host to the host list
 ///        if it is not already in it. Flag that this is the first connection after

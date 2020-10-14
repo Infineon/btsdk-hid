@@ -89,14 +89,6 @@ typedef struct
 #endif
 } blehid_aon_save_content_t;
 
-enum hidd_blelink_conn_param_index_e
-{
-        BLEHIDLINK_CONN_INTERVAL_MIN = 0,       //minimum connection interval
-        BLEHIDLINK_CONN_INTERVAL_MAX,           //maximum connection interval
-        BLEHIDLINK_CONN_SLAVE_LATENCY,          //slave latency
-        BLEHIDLINK_CONN_TIMEOUT                 //timeout
-};
-
 enum
 {
     /// do not allow 2nd connection (default)
@@ -131,22 +123,11 @@ typedef struct _LinkStateObserver
 typedef void (hidd_blelink_no_param_fp)(void);
 typedef void (hidd_blelink_one_param_fp)(uint32_t arg);
 
+#pragma pack(1)
 typedef struct
 {
-    ///prefered connection parameters. Index see enum hidd_blelink_conn_param_index_e
-    uint16_t prefered_conn_params[4];
-
-    /// state (enum hidd_blelink_state_e)
-    uint8_t subState;
-
-    /// is State transition pending?
-    uint8_t pendingStateTransiting;
-
-    /// GATT connection ID
-    uint16_t gatts_conn_id;
-
-    /// connection idle timer timeout value. Timeout value in seconds. 0 for infinity (default)
-    uint16_t conn_idle_timeout;
+   /// osapi timer start instant (we used it to keep track of remaining timeout period when wake from uBCS mode)
+    uint64_t  osapi_app_timer_start_instant;
 
      ///connection idle timer (osapi timer that can be supported in uBCS mode)
     OSAPI_TIMER conn_idle_timer;
@@ -174,6 +155,32 @@ typedef struct
     ///embedded controller info for the existing LE link before we enter connected-advertising. If new connection failed, we need to recover with it
     EMCONINFO_DEVINFO   existing_emconinfo;
 
+#ifdef AUTO_RECONNECT
+    /// indicate if we will try "auto reconnect", i.e. start LE advertising,  when disconnected
+    wiced_bool_t auto_reconnect;
+#endif
+
+    /// connection_param_updated;
+    wiced_bool_t connection_param_updated;
+
+    // adv_mode;
+    wiced_bt_ble_advert_mode_t adv_mode;
+
+    /// GATT connection ID
+    uint16_t gatts_conn_id;
+
+    /// connection idle timer timeout value. Timeout value in seconds. 0 for infinity (default)
+    uint16_t conn_idle_timeout;
+
+    /// the existing connection GATT connetion ID when 2nd LE connection is up
+    uint16_t existing_connection_gatts_conn_id;
+
+    /// state (enum hidd_blelink_state_e)
+    uint8_t subState;
+
+    /// is State transition pending?
+    uint8_t pendingStateTransiting;
+
     /// subState before we entering SDS. When we exist SDS, we resume from this subState
     uint8_t resumeState;
 
@@ -183,22 +190,14 @@ typedef struct
     /// peer addr in GATT (the peer address and peer address type used in GATT can be different when peer used random address)
     uint8_t gatts_peer_addr[BD_ADDR_LEN];
 
-    /// osapi timer start instant (we used it to keep track of remaining timeout period when wake from uBCS mode)
-    uint64_t  osapi_app_timer_start_instant;
-
-    /// indicate if we have application osapi timer running when entering uBCS mode
+     /// indicate if we have application osapi timer running when entering uBCS mode
     uint8_t   osapi_app_timer_running;
 
     /// 2nd LE connection state (not allowed/allowed/pending)
     uint8_t second_conn_state;
 
-    /// the existing connection GATT connetion ID when 2nd LE connection is up
-    uint16_t existing_connection_gatts_conn_id;
-
-#ifdef AUTO_RECONNECT
-    /// indicate if we will try "auto reconnect", i.e. start LE advertising,  when disconnected
-    wiced_bool_t auto_reconnect;
-#endif
+    /// wake_from_SDS_timer_timeout_flag
+    uint8_t wake_from_SDS_timer_timeout_flag;
 
 #ifdef WHITE_LIST_FOR_ADVERTISING
     uint8_t   adv_white_list_enabled;
@@ -211,12 +210,14 @@ typedef struct
     /// easy pair candidates
     EASY_PAIR_INFO easyPair;
 
-    ///easy pair timer
+    /// easy pair timer
     wiced_timer_t easyPair_timer;
 #endif
-} tBleHidLink;
 
-extern tBleHidLink hidd_blelink;
+} tBleHidLink;
+#pragma pack()
+
+extern tBleHidLink blelink;
 
 /////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
@@ -323,11 +324,6 @@ void hidd_blelink_conn_update_complete(void);
 /// slave can enable assymmetric slave latency to lower power consumption
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_set_slave_latency(uint16_t slaveLatencyinmS);
-
-/////////////////////////////////////////////////////////////////////////////////
-/// set ble HID link prefered conneciton parameters
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_set_preferred_conn_params(uint16_t conn_min_interval, uint16_t conn_max_interval, uint16_t slavelatency, uint16_t timeout);
 
 /////////////////////////////////////////////////////////////////////////////////
 /// set ble HID link connection Idle timer timeout value in seconds (default is 0, i.e. no timeout)

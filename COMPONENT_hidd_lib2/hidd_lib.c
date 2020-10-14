@@ -84,19 +84,16 @@ typedef struct
     uint8_t allowDeepSleep:1;
     uint8_t allowHIDOFF:1;
 
-
     /// allow SDS timer
     wiced_timer_t allowDeepSleepTimer;
 
     wiced_sleep_allow_check_callback  p_app_sleep_handler;
 
-    const wiced_bt_cfg_settings_t * bt_cfg_ptr;
+    wiced_bt_cfg_settings_t * bt_cfg_ptr;
 
     uint8_t pairing_type;
 
 } tHiddLink; tHiddLink hidd = {};
-
-
 
 /////////////////////////////////////////////////////////////////////////////////
 /// register application callback functions
@@ -226,7 +223,7 @@ static uint32_t HIDD_sleep_handler(wiced_sleep_poll_type_t type )
             if ( !hidd_is_deep_sleep_allowed()
                  || wiced_hidd_is_transport_detection_polling_on()
   #ifdef BLE_SUPPORT
-                 || (hidd_blelink.second_conn_state == BLEHIDLINK_2ND_CONNECTION_PENDING)
+                 || (blelink.second_conn_state == BLEHIDLINK_2ND_CONNECTION_PENDING)
   #endif
   #if defined(BR_EDR_SUPPORT) && is_20735Family
                  //due to sniff+SDS is not supported in core FW, at this time, only allow SDS when disconnected
@@ -283,7 +280,7 @@ static uint32_t HIDD_sleep_handler(wiced_sleep_poll_type_t type )
 
 #ifdef BLE_SUPPORT
 /*
- * Handle host command to set device pairable.  This is typically a HID device button push.
+ * Handle host command to set device pairablelink.  This is typically a HID device button push.
  */
 void ble_accept_pairing( BOOLEAN enable )
 {
@@ -463,7 +460,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                     }
 
                     //SMP result callback: successful
-                    hidd_host_setTransport(hidd_blelink.gatts_peer_addr, BT_TRANSPORT_LE);
+                    hidd_host_setTransport(blelink.gatts_peer_addr, BT_TRANSPORT_LE);
                     hci_control_send_pairing_complete_evt( p_info->reason, p_event_data->pairing_complete.bd_addr, BT_DEVICE_TYPE_BLE );
                 }
                 else
@@ -665,8 +662,8 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                 hci_control_send_advertisement_state_evt( new_adv_mode );
                 if (!new_adv_mode)
                 {
-//                    WICED_BT_TRACE("\nsubstate: %d", hidd_blelink.subState);
-                    if (hidd_blelink.subState==HIDLINK_LE_DISCOVERABLE)
+//                    WICED_BT_TRACE("\nsubstate: %d", blelink.subState);
+                    if (blelink.subState==HIDLINK_LE_DISCOVERABLE)
                     {
 //                        WICED_BT_TRACE("\ndisconnecting..");
                         hidd_blelink_enterDisconnected();
@@ -690,7 +687,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                 }
 #endif
                 // if we are reconnecting and adv stops, we enter disconnected state
-                if (hidd_blelink.subState == HIDLINK_LE_RECONNECTING && !new_adv_mode)
+                if (blelink.subState == HIDLINK_LE_RECONNECTING && !new_adv_mode)
                 {
                     hidd_blelink_set_state(HIDLINK_LE_DISCONNECTED);
 #ifdef AUTO_RECONNECT
@@ -721,7 +718,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
 
 /////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
-const wiced_bt_cfg_settings_t * hidd_cfg()
+wiced_bt_cfg_settings_t * hidd_cfg()
 {
     return hidd.bt_cfg_ptr;
 }
@@ -735,7 +732,7 @@ const wiced_bt_cfg_settings_t * hidd_cfg()
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_start(wiced_result_t (*p_bt_app_init)(),
                 wiced_bt_management_cback_t   * p_bt_management_cback,
-                const wiced_bt_cfg_settings_t * p_bt_cfg_settings,
+                wiced_bt_cfg_settings_t * p_bt_cfg_settings,
                 const wiced_bt_cfg_buf_pool_t * p_bt_cfg_buf_pools)
 {
 #if is_SDS_capable

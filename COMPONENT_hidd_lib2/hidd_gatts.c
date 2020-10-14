@@ -162,7 +162,7 @@ wiced_bt_gatt_status_t hidd_gatts_req_read_handler( uint16_t conn_id, wiced_bt_g
             *p_read_data->p_val_len = attr_len_to_copy;
         }
 
-        mtu = wiced_blehidd_get_att_mtu_size(hidd_blelink.gatts_peer_addr);
+        mtu = wiced_blehidd_get_att_mtu_size(blelink.gatts_peer_addr);
 
         //make sure copying buff is large enough so it won't corrupt memory
         if(attr_len_to_copy >= mtu)
@@ -213,7 +213,7 @@ wiced_bt_gatt_status_t hidd_gatts_req_write_handler( uint16_t conn_id, wiced_bt_
     wiced_bt_gatt_status_t result;
 
     // NOTE: the gatt connection id is not the connection handler in the controller.
-    if( conn_id != hidd_blelink.gatts_conn_id)
+    if( conn_id != blelink.gatts_conn_id)
     {
         return WICED_BT_GATT_ERROR;
     }
@@ -295,12 +295,12 @@ wiced_bt_gatt_status_t hidd_gatts_req_write_handler( uint16_t conn_id, wiced_bt_
     }
 
     // Whenever there is an activity, restart the idle timer
-    if (hidd_blelink.conn_idle_timeout)
+    if (blelink.conn_idle_timeout)
     {
-        osapi_activateTimer( &hidd_blelink.conn_idle_timer, hidd_blelink.conn_idle_timeout * 1000000UL); //timout in micro seconds.
-        hidd_blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
-        hidd_blelink.osapi_app_timer_running |= BLEHIDLINK_CONNECTION_IDLE_TIMER;
-        hidd_blelink.osapi_app_timer_running |= 1;
+        osapi_activateTimer( &blelink.conn_idle_timer, blelink.conn_idle_timeout * 1000000UL); //timout in micro seconds.
+        blelink.osapi_app_timer_start_instant = clock_SystemTimeMicroseconds64();
+        blelink.osapi_app_timer_running |= BLEHIDLINK_CONNECTION_IDLE_TIMER;
+        blelink.osapi_app_timer_running |= 1;
     }
     return result;
 }
@@ -310,10 +310,10 @@ wiced_bt_gatt_status_t hidd_gatts_req_write_handler( uint16_t conn_id, wiced_bt_
  */
 wiced_bt_gatt_status_t hidd_gatts_connection_up( wiced_bt_gatt_connection_status_t *p_status )
 {
-    WICED_BT_TRACE("\nLink up, id: %d, peer_addr_type: %d, peer_addr: %B, second_conn_state: %d",  p_status->conn_id, p_status->addr_type, p_status->bd_addr, hidd_blelink.second_conn_state);
+    WICED_BT_TRACE("\nLink up, id: %d, peer_addr_type: %d, peer_addr: %B, second_conn_state: %d",  p_status->conn_id, p_status->addr_type, p_status->bd_addr, blelink.second_conn_state);
 
     //if 2nd connection is not allowed, disconnect right away
-    if (hidd_blelink_is_connected() && !hidd_blelink.second_conn_state)
+    if (hidd_blelink_is_connected() && !blelink.second_conn_state)
     {
         //disconnect the new connection
         wiced_bt_gatt_disconnect(p_status->conn_id);
@@ -323,9 +323,9 @@ wiced_bt_gatt_status_t hidd_gatts_connection_up( wiced_bt_gatt_connection_status
     //configure ATT MTU size with peer device
     wiced_bt_gatt_configure_mtu(p_status->conn_id, hidd_cfg()->gatt_cfg.max_mtu_size);
 
-    hidd_blelink.gatts_conn_id = p_status->conn_id;
-    hidd_blelink.gatts_peer_addr_type = p_status->addr_type;
-    memcpy(hidd_blelink.gatts_peer_addr, p_status->bd_addr, BD_ADDR_LEN);
+    blelink.gatts_conn_id = p_status->conn_id;
+    blelink.gatts_peer_addr_type = p_status->addr_type;
+    memcpy(blelink.gatts_peer_addr, p_status->bd_addr, BD_ADDR_LEN);
 
     hidd_blelink_connected();
 
@@ -346,9 +346,9 @@ wiced_bt_gatt_status_t hidd_gatts_connection_down( wiced_bt_gatt_connection_stat
 {
     WICED_BT_TRACE("\nLink down, id: %d reason: %d",  p_status->conn_id, p_status->reason );
     //connection is disconnected, and 2nd connection not allowed
-    if (hidd_blelink.gatts_conn_id == p_status->conn_id && !hidd_blelink.second_conn_state)
+    if (blelink.gatts_conn_id == p_status->conn_id && !blelink.second_conn_state)
     {
-        hidd_blelink.gatts_conn_id = 0;
+        blelink.gatts_conn_id = 0;
         hidd_blelink_disconnected();
     }
 

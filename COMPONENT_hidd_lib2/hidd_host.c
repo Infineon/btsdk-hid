@@ -213,8 +213,13 @@ static uint8_t host_ShiftDown(uint8_t index)
                     &host.list[index],
                     HIDD_HOST_LIST_ELEMENT_SIZE*(host.count - index));
         }
-        // Clear the new element data at index
-        memset(&host.list[index], 0, HIDD_HOST_LIST_ELEMENT_SIZE);
+
+        // This condition cannot be false because "index <= host.count && host.count < HIDD_HOST_LIST_MAX" but just to make coverity happy
+        if (index < HIDD_HOST_LIST_MAX)
+        {
+            // Clear the new element data at index
+            memset(&host.list[index], 0, HIDD_HOST_LIST_ELEMENT_SIZE);
+        }
 
         // Now we have one more host element
         host.count++;
@@ -246,8 +251,11 @@ static void host_ShiftUp(uint8_t index)
                 &host.list[index+1],
                 HIDD_HOST_LIST_ELEMENT_SIZE*(host.count - index));
 
-        // Clear the freed element
-        memset(&host.list[host.count], 0, HIDD_HOST_LIST_ELEMENT_SIZE);
+        if (host.count < HIDD_HOST_LIST_MAX)
+        {
+            // Clear the freed element
+            memset(&host.list[host.count], 0, HIDD_HOST_LIST_ELEMENT_SIZE);
+        }
     }
 }
 
@@ -324,10 +332,14 @@ static void host_del(uint8_t i)
 wiced_bool_t hidd_host_activate(const BD_ADDR bdAddr)
 {
     uint8_t index = host_findAddr(bdAddr);
+
     if (index != HOST_INFO_INDEX_TOP)
     {
-        tHidd_HostInfo tempHost;
-        wiced_bool_t found = index < HIDD_HOST_LIST_MAX;
+#if HIDD_HOST_LIST_MAX <= 1
+        host.count=1;
+#else
+        tHidd_HostInfo tempHost = host.list[index];
+        wiced_bool_t found = index != < HIDD_HOST_LIST_MAX;
 
         // if host is already in the list, save it
         if (found)
@@ -347,6 +359,7 @@ wiced_bool_t hidd_host_activate(const BD_ADDR bdAddr)
             host.list[HOST_INFO_INDEX_TOP] = tempHost;
         }
         else
+#endif
         {
             memcpy(host.list[HOST_INFO_INDEX_TOP].bdAddr, bdAddr, BD_ADDR_LEN);
             // default transport to LE

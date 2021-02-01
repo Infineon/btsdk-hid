@@ -1,10 +1,10 @@
 /*
- * Copyright 2016-2020, Cypress Semiconductor Corporation or a subsidiary of
- * Cypress Semiconductor Corporation. All Rights Reserved.
+ * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
- * materials ("Software"), is owned by Cypress Semiconductor Corporation
- * or one of its subsidiaries ("Cypress") and is protected by and subject to
+ * materials ("Software") is owned by Cypress Semiconductor Corporation
+ * or one of its affiliates ("Cypress") and is protected by and subject to
  * worldwide patent protection (United States and foreign),
  * United States copyright laws and international treaty provisions.
  * Therefore, you may use this Software only as provided in the license
@@ -13,7 +13,7 @@
  * If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
  * non-transferable license to copy, modify, and compile the Software
  * source code solely for use in connection with Cypress's
- * integrated circuit products. Any reproduction, modification, translation,
+ * integrated circuit products.  Any reproduction, modification, translation,
  * compilation, or representation of this Software except as specified
  * above is prohibited without the express written permission of Cypress.
  *
@@ -43,13 +43,14 @@
 #ifndef __HIDD_LIB_H__
 #define __HIDD_LIB_H__
 
+#include "wiced.h"
+#include "wiced_hal_nvram.h"
 #include "wiced_bt_cfg.h"
 #include "hidd_gatts.h"
-#include "hidd_link.h"
-#include "hidd_hci.h"
-#include "hidd_host.h"
-#include "hidd_audio.h"
-#include "hidd_led.h"
+
+/////////////////////////////////////////////////////////////////////////////////
+// defines for library (that needed in sub-library)
+/////////////////////////////////////////////////////////////////////////////////
 
 #define is_208xxFamily ((CHIP==20819) || (CHIP==20820))
 #define is_20739Family ((CHIP==20739) || (CHIP==20719) || (CHIP==20721))
@@ -58,6 +59,7 @@
 #define is_ePDS_capable is_208xxFamily
 #define is_newFamily (is_20735Family || is_20739Family || is_208xxFamily)
 
+typedef void (app_poll_callback_t)(void);
 
 #define BT_TRANSPORT_DUAL (BT_TRANSPORT_BR_EDR | BT_TRANSPORT_LE)
 
@@ -72,6 +74,24 @@
 #endif
 
 #define WICED_RESUME_HIDD_LIB_HANDLER WICED_NOT_FOUND
+
+/////////////////////////////////////////////////////////////////////////////////
+// NVRAM ID defines
+/////////////////////////////////////////////////////////////////////////////////
+enum {
+    VS_ID_LOCAL_IDENTITY = WICED_NVRAM_VSID_START,
+    VS_ID_HIDD_HOST_LIST,
+    VS_ID_GFPS_ACCOUNT_KEY,
+};
+
+/////////////////////////////////////////////////////////////////////////////////
+// Include sub-libraries
+/////////////////////////////////////////////////////////////////////////////////
+#include "hidd_link.h"
+#include "hidd_hci.h"
+#include "hidd_host.h"
+#include "hidd_audio.h"
+#include "hidd_led.h"
 
 /////////////////////////////////////////////////////////////////////////////////
 /// register application callback functions
@@ -188,15 +208,6 @@ uint8_t hidd_is_deep_sleep_timer_running();
 uint8_t hidd_is_deep_sleep_allowed();
 
 /******************************************************************************************/
-// LED functions ///////////////////////////////////////////////////////////////////////////
-/******************************************************************************************/
-enum {
-    LED_ERROR_CODE_NO_ERROR,   // 0
-    LED_ERROR_CODE_GATTS,      // 1 LE GATTS database init error
-    LED_ERROR_CODE_SDP_DB,     // 2 BR/EDR SDP Database init error
-};
-
-/******************************************************************************************/
 // Generic functions ///////////////////////////////////////////////////////////////////////
 /******************************************************************************************/
 
@@ -217,7 +228,6 @@ void hidd_start(wiced_result_t (*p_bt_app_init)(),
                       wiced_bt_cfg_settings_t * p_bt_cfg_settings,
                       const wiced_bt_cfg_buf_pool_t * p_bt_cfg_buf_pools);
 
-
 ////////////////////////////////////////////////////////////////////////////////
 /// hidd_allowed_hidoff
 ///
@@ -232,4 +242,13 @@ void hidd_allowed_hidoff(wiced_bool_t en);
 ////////////////////////////////////////////////////////////////////////////////
 void hidd_activity_detected();
 
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+#ifdef FASTPAIR_ENABLE
+ #define hidd_start_advertisements(ad,type,adr) hidd_gfps_discoverablility_set(ad)
+#else
+ #define hidd_start_advertisements(ad,type,adr) wiced_bt_start_advertisements(ad,type,adr)
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
 #endif

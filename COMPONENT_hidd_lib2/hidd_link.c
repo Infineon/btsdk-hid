@@ -1,10 +1,10 @@
 /*
- * Copyright 2016-2020, Cypress Semiconductor Corporation or a subsidiary of
- * Cypress Semiconductor Corporation. All Rights Reserved.
+ * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
- * materials ("Software"), is owned by Cypress Semiconductor Corporation
- * or one of its subsidiaries ("Cypress") and is protected by and subject to
+ * materials ("Software") is owned by Cypress Semiconductor Corporation
+ * or one of its affiliates ("Cypress") and is protected by and subject to
  * worldwide patent protection (United States and foreign),
  * United States copyright laws and international treaty provisions.
  * Therefore, you may use this Software only as provided in the license
@@ -13,7 +13,7 @@
  * If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
  * non-transferable license to copy, modify, and compile the Software
  * source code solely for use in connection with Cypress's
- * integrated circuit products. Any reproduction, modification, translation,
+ * integrated circuit products.  Any reproduction, modification, translation,
  * compilation, or representation of this Software except as specified
  * above is prohibited without the express written permission of Cypress.
  *
@@ -50,10 +50,10 @@ hidd_link_t link;
 void hidd_link_aon_action_handler(uint8_t  type)
 {
  #ifdef BLE_SUPPORT
-    hidd_blelink_aon_action_handler(HIDD_LINK_SAVE_TO_AON);
+    hidd_blelink_aon_action_handler(type);
  #endif
  #ifdef BR_EDR_SUPPORT
-    hidd_btlink_aon_action_handler(HIDD_LINK_SAVE_TO_AON);
+    hidd_btlink_aon_action_handler(type);
  #endif
 }
 #endif
@@ -450,7 +450,7 @@ wiced_bt_hidd_status_t hidd_link_send_data(uint8_t ch, uint8_t type, uint8_t *pt
     switch (hidd_host_transport()) {
 #ifdef BLE_SUPPORT
     case BT_TRANSPORT_LE:
-        if (hidd_gatt_set_data(ptr, len))
+        if (hidd_gatts_set_data(ptr, len))
         {
             // Send the report
             return hidd_blelink_send_report(id, type, ++ptr, --len); // pointer and length don't include report ID for BLE

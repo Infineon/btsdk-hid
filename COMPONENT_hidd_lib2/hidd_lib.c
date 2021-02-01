@@ -1,10 +1,10 @@
 /*
- * Copyright 2016-2020, Cypress Semiconductor Corporation or a subsidiary of
- * Cypress Semiconductor Corporation. All Rights Reserved.
+ * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
- * materials ("Software"), is owned by Cypress Semiconductor Corporation
- * or one of its subsidiaries ("Cypress") and is protected by and subject to
+ * materials ("Software") is owned by Cypress Semiconductor Corporation
+ * or one of its affiliates ("Cypress") and is protected by and subject to
  * worldwide patent protection (United States and foreign),
  * United States copyright laws and international treaty provisions.
  * Therefore, you may use this Software only as provided in the license
@@ -13,7 +13,7 @@
  * If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
  * non-transferable license to copy, modify, and compile the Software
  * source code solely for use in connection with Cypress's
- * integrated circuit products. Any reproduction, modification, translation,
+ * integrated circuit products.  Any reproduction, modification, translation,
  * compilation, or representation of this Software except as specified
  * above is prohibited without the express written permission of Cypress.
  *
@@ -40,8 +40,8 @@
 * Functions:
 *
 *******************************************************************************/
+#include "hidd_lib.h"
 #include "wiced_hal_batmon.h"
-#include "wiced_hal_nvram.h"
 #include "wiced_hal_gpio.h"
 #include "wiced_hal_pwm.h"
 #include "wiced_hal_aclk.h"
@@ -49,15 +49,14 @@
 #include "wiced_bt_trace.h"
 #include "wiced_bt_ota_firmware_upgrade.h"
 #include "wiced_bt_stack.h"
+#ifdef FASTPAIR_ENABLE
+#include "wiced_bt_gfps.h"
+#endif
 #include "wiced_hidd_lib.h"
 #include "hci_control_api.h"
-#include "hidd_lib.h"
 
 #define PMU_CONFIG_FLAGS_ENABLE_SDS           0x00002000
 extern UINT32 g_foundation_config_PMUflags;
-
-//Local identity key ID
-#define  VS_LOCAL_IDENTITY_ID WICED_NVRAM_VSID_START
 
 #define STOP_PAIRING  0
 #define START_PAIRING 1
@@ -522,7 +521,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
             WICED_BT_TRACE("\nBTM_LOCAL_IDENTITY_KEYS_UPDATE_EVT");
             /* save keys to NVRAM */
             p_keys = (uint8_t *)&p_event_data->local_identity_keys_update;
-            wiced_hal_write_nvram ( VS_LOCAL_IDENTITY_ID, sizeof( wiced_bt_local_identity_keys_t ), p_keys ,&result );
+            wiced_hal_write_nvram ( VS_ID_LOCAL_IDENTITY, sizeof( wiced_bt_local_identity_keys_t ), p_keys ,&result );
 #if 0
             WICED_BT_TRACE("\n local keys save to NVRAM result: %d", result);
             TRACE_ARRAY(p_event_data->local_identity_keys_update.local_key_data, BTM_SECURITY_LOCAL_KEY_DATA_LEN);
@@ -533,7 +532,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
             WICED_BT_TRACE("\nBTM_LOCAL_IDENTITY_KEYS_REQUEST_EVT");
             /* read keys from NVRAM */
             p_keys = (uint8_t *)&p_event_data->local_identity_keys_request;
-            wiced_hal_read_nvram( VS_LOCAL_IDENTITY_ID, sizeof(wiced_bt_local_identity_keys_t), p_keys, &result );
+            wiced_hal_read_nvram( VS_ID_LOCAL_IDENTITY, sizeof(wiced_bt_local_identity_keys_t), p_keys, &result );
 #if 0
             WICED_BT_TRACE("\n local keys read from NVRAM result: %d",  result);
             if (!result)
@@ -600,17 +599,33 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
 
         case BTM_USER_CONFIRMATION_REQUEST_EVT:
             WICED_BT_TRACE("\nBTM_USER_CONFIRMATION_REQUEST_EVT");
+ #ifdef FASTPAIR_ENABLE
+            wiced_bt_gfps_provider_seeker_passkey_set(p_event_data->user_confirmation_request.numeric_value);
+ #endif
             wiced_bt_dev_confirm_req_reply(WICED_BT_SUCCESS, p_event_data->user_confirmation_request.bd_addr);
             break;
 
         case BTM_PAIRING_IO_CAPABILITIES_BR_EDR_REQUEST_EVT:
             WICED_BT_TRACE("\nBTM_PAIRING_IO_CAPABILITIES_REQUEST_EVT bda %B",
                         p_event_data->pairing_io_capabilities_br_edr_request.bd_addr);
- #ifdef USE_KEYBOARD_IO_CAPABILITIES
-            p_event_data->pairing_io_capabilities_br_edr_request.local_io_cap = BTM_IO_CAPABILITIES_KEYBOARD_ONLY;
- #else
-            p_event_data->pairing_io_capabilities_br_edr_request.local_io_cap = BTM_IO_CAPABILITIES_NONE;
+ #ifdef FASTPAIR_ENABLE
+            if (wiced_bt_gfps_provider_pairing_state_get())
+            {   // Google Fast Pair service Seeker triggers this pairing process.
+                /* Set local capability to Display/YesNo to identify local device is not a
+                 * man-in-middle device.
+                 * Otherwise, the Google Fast Pair Service Seeker will terminate this pairing
+                 * process. */
+                p_event_data->pairing_io_capabilities_br_edr_request.local_io_cap = BTM_IO_CAPABILITIES_DISPLAY_AND_YES_NO_INPUT;
+            }
+            else
  #endif
+            {
+ #ifdef USE_KEYBOARD_IO_CAPABILITIES
+                p_event_data->pairing_io_capabilities_br_edr_request.local_io_cap = BTM_IO_CAPABILITIES_KEYBOARD_ONLY;
+ #else
+                p_event_data->pairing_io_capabilities_br_edr_request.local_io_cap = BTM_IO_CAPABILITIES_NONE;
+ #endif
+            }
             p_event_data->pairing_io_capabilities_br_edr_request.oob_data = BTM_OOB_NONE;
             p_event_data->pairing_io_capabilities_br_edr_request.auth_req = BTM_AUTH_SINGLE_PROFILE_GENERAL_BONDING_NO;
             p_event_data->pairing_io_capabilities_br_edr_request.is_orig = FALSE;
@@ -623,6 +638,18 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                                 p_event_data->pairing_io_capabilities_br_edr_response.io_cap,
                                 p_event_data->pairing_io_capabilities_br_edr_response.oob_data,
                                 p_event_data->pairing_io_capabilities_br_edr_response.auth_req);
+
+ #ifdef FASTPAIR_ENABLE
+            if (wiced_bt_gfps_provider_pairing_state_get())
+            {   // Google Fast Pair service Seeker triggers this pairing process.
+                /* If the device capability is set to NoInput/NoOutput, end pairing, to avoid using
+                 * Just Works pairing method. todo*/
+                if (p_event_data->pairing_io_capabilities_br_edr_response.io_cap == BTM_IO_CAPABILITIES_NONE)
+                {
+                    WICED_BT_TRACE("Terminate the pairing process\n");
+                }
+            }
+ #endif
             break;
 
         case BTM_SECURITY_FAILED_EVT:
@@ -768,6 +795,16 @@ void hidd_start(wiced_result_t (*p_bt_app_init)(),
 
     hci_control_init();
 }
+
+#ifdef FASTPAIR_ENABLE
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+wiced_result_t hidd_gfps_discoverablility_set(wiced_bt_ble_advert_mode_t advert_mode)
+{
+    wiced_bt_gfps_provider_discoverablility_set(advert_mode!=BTM_BLE_ADVERT_OFF);
+    return WICED_SUCCESS;
+}
+#endif
 
 /////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////

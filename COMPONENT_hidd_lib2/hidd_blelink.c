@@ -1,10 +1,10 @@
 /*
- * Copyright 2016-2020, Cypress Semiconductor Corporation or a subsidiary of
- * Cypress Semiconductor Corporation. All Rights Reserved.
+ * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
- * materials ("Software"), is owned by Cypress Semiconductor Corporation
- * or one of its subsidiaries ("Cypress") and is protected by and subject to
+ * materials ("Software") is owned by Cypress Semiconductor Corporation
+ * or one of its affiliates ("Cypress") and is protected by and subject to
  * worldwide patent protection (United States and foreign),
  * United States copyright laws and international treaty provisions.
  * Therefore, you may use this Software only as provided in the license
@@ -13,7 +13,7 @@
  * If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
  * non-transferable license to copy, modify, and compile the Software
  * source code solely for use in connection with Cypress's
- * integrated circuit products. Any reproduction, modification, translation,
+ * integrated circuit products.  Any reproduction, modification, translation,
  * compilation, or representation of this Software except as specified
  * above is prohibited without the express written permission of Cypress.
  *
@@ -41,39 +41,21 @@
 *******************************************************************************/
 #ifdef BLE_SUPPORT
 #include "spar_utils.h"
-#include "wiced.h"
+#include "hidd_lib.h"
 #include "wiced_hal_mia.h"
 #include "wiced_hal_gpio.h"
 #include "wiced_bt_dev.h"
 #include "wiced_bt_trace.h"
 #include "wiced_bt_event.h"
 #include "wiced_bt_l2c.h"
-#include "wiced_bt_stack.h"
-#include "wiced_bt_ota_firmware_upgrade.h"
 #include "wiced_hal_batmon.h"
-#include "wiced_hal_nvram.h"
 #include "wiced_memory.h"
-#include "hidd_lib.h"
 
 tBleHidLink blelink = {};
-
 
 #ifdef FATORY_TEST_SUPPORT
 uint8_t factory_mode = 0;
 extern uint8_t force_sleep_in_HID_mode;
-#endif
-
-void hidd_blelink_connectionIdle_timerCb(INT32 args, UINT32 overTimeInUs);
-#ifdef ALLOW_SDS_IN_DISCOVERABLE
-void hidd_blelink_stateswitchtimerCb( uint32_t arg);
-void hidd_blelink_discoverabletimerCb(INT32 args, UINT32 overTimeInUs);
-#endif
-void hidd_blelink_enterConnected(void);
-void hidd_blelink_enterReconnecting(void);
-
-#ifdef EASY_PAIR
-void hidd_blelink_easyPair(uint32_t arg);
-void hidd_blelink_easyPair_timerCb( uint32_t arg);
 #endif
 
 PLACE_DATA_IN_RETENTION_RAM blehid_aon_save_content_t   ble_aon_data;
@@ -83,6 +65,19 @@ PLACE_DATA_IN_RETENTION_RAM blehid_aon_save_content_t   ble_aon_data;
 void hidd_blelink_set_adv_mode(wiced_bt_ble_advert_mode_t newMode)
 {
     blelink.adv_mode = newMode;
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/// timeout handler
+/// \param arg - don't care
+/// \param overTimeInUs - don't care
+/////////////////////////////////////////////////////////////////////////////////
+void hidd_blelink_connectionIdle_timerCb(INT32 args, UINT32 overTimeInUs)
+{
+    WICED_BT_TRACE("\nconnection Idle timeout");
+
+    //disconnect the link
+    hidd_blelink_disconnect();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -112,6 +107,51 @@ void hidd_blelink_init()
     blelink.auto_reconnect = WICED_TRUE;
 #endif
 
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/// Reconnecting to previous HID host.
+/// i.e. start high duty cycle directed advertising
+/////////////////////////////////////////////////////////////////////////////////
+void hidd_blelink_enterReconnecting(void)
+{
+    WICED_BT_TRACE("\nhidd_blelink_enterReconnecting");
+    //if low battery shutdown, do nothing
+    if (wiced_hal_batmon_is_low_battery_shutdown())
+    {
+        return;
+    }
+
+#ifdef FATORY_TEST_SUPPORT
+    //do not start LE advertising when factory_mode == 1
+    if (factory_mode)
+        return;
+#endif
+
+    WICED_BT_TRACE("\nenterReconnecting");
+    //if reconnect timer is running, stop it
+    hidd_link_stop_reconnect_timer();
+
+    if (hidd_is_paired())
+    {
+        //NOTE!!! wiced_bt_start_advertisement could modify the value of bdAddr, so MUST use a copy.
+        uint8_t tmp_bdAddr[BD_ADDR_LEN];
+        memcpy(tmp_bdAddr, hidd_host_addr(), BD_ADDR_LEN);
+
+#ifdef WHITE_LIST_FOR_ADVERTISING
+        //add to white list
+        wiced_bt_ble_update_advertising_white_list(WICED_TRUE, tmp_bdAddr);
+#endif
+        // start high duty cycle directed advertising.
+        if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_HIGH, hidd_host_addr_type(), tmp_bdAddr))
+            WICED_BT_TRACE("\nFailed to start high duty cycle directed advertising!!!");
+
+        hidd_blelink_set_state(HIDLINK_LE_RECONNECTING);
+    }
+    else
+    {
+        hidd_blelink_enterDiscoverable(WICED_TRUE);
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -202,10 +242,10 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
     if ((HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED == blelink.resumeState) ||
         (HIDLINK_LE_ADVERTISING_IN_uBCS_UNDIRECTED == blelink.resumeState))
     {
+        extern BOOLEAN btsnd_hcic_ble_set_adv_enable (UINT8 adv_enable);
         //stop advertising.
-        //NOTE: wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF) can't be used to stop advertising here.
-        // Due to wiced stack didn't save adv status before/exit SDS.
-        //btsnd_hcic_ble_set_adv_enable (BTM_BLE_ADVERT_OFF);
+        //NOTE: wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF) can't be used to stop advertising here. Due to wiced stack didn't save adv status before/exit SDS.
+        btsnd_hcic_ble_set_adv_enable (BTM_BLE_ADVERT_OFF);
 
         //check if wake up due to receiving LE connect request
         if (wiced_blehidd_is_wakeup_from_conn_req())
@@ -310,9 +350,6 @@ wiced_bt_ble_advert_mode_t hidd_blelink_get_adv_mode(void)
 /////////////////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_determine_next_state(void)
 {
-    //always reset to 0
-    blelink.wake_from_SDS_timer_timeout_flag = 0;
-
     if(!wiced_hal_mia_is_reset_reason_por())
     {
         WICED_BT_TRACE("\nwake from shutdown");
@@ -326,6 +363,65 @@ void hidd_blelink_determine_next_state(void)
         WICED_BT_TRACE("\ncold boot");
     }
     hidd_blelink_determine_next_state_on_boot();
+
+    //always reset to 0
+    blelink.wake_from_SDS_timer_timeout_flag = 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/// Become connected.
+/// Start SMP bonding/pairing process if not bonded but encryption is required
+/////////////////////////////////////////////////////////////////////////////////
+void hidd_blelink_enterConnected(void)
+{
+    uint8_t *bdAddr;
+    uint8_t bdAddrType;
+
+
+    WICED_BT_TRACE("\nhidd_blelink_enterConnected");
+
+#ifdef ALLOW_SDS_IN_DISCOVERABLE
+    //stop discoverable timer
+    osapi_deactivateTimer(&blelink.discoverable_timer);
+
+    blelink.osapi_app_timer_running &= ~BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
+    if ((blelink.osapi_app_timer_running >> 1) == 0)
+    {
+        blelink.osapi_app_timer_running = 0; // no more application osapi timer is running
+    }
+#endif
+
+    hidd_host_setAddrType(blelink.gatts_peer_addr, blelink.gatts_peer_addr_type);
+
+    // if dev does not agree with our setting, we change both to bonded
+    if (wiced_blehidd_is_device_bonded() ^ hidd_host_isBonded())
+    {
+        if (hidd_host_isBonded())
+        {
+            // this is bonded device, we have the bonding info..
+            WICED_BT_TRACE("\nset device bonded flag");
+            wiced_blehidd_set_device_bonded_flag(WICED_TRUE);
+        }
+        else
+        {
+            // already bonded in dev, we update our record
+            WICED_BT_TRACE("\nupdate bonded flag");
+            hidd_host_setBonded(WICED_TRUE);
+        }
+    }
+
+    hidd_blelink_set_state(HIDLINK_LE_CONNECTED);
+    // In any case, stop advertising
+    wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
+
+    if(hidd_cfg()->security_requirement_mask)
+    {
+        if (!wiced_blehidd_is_device_bonded())
+        {
+            WICED_BT_TRACE("\nsend security req:");
+            wiced_bt_dev_sec_bond(blelink.gatts_peer_addr, blelink.gatts_peer_addr_type, BT_TRANSPORT_LE, 0, NULL);
+        }
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -534,7 +630,7 @@ void hidd_blelink_enterDisconnected(void)
 }
 
 /////////////////////////////////////////////////////////////////////////////////
-/// become discoverablelink. i.e. start connectable undirected advertising
+/// become discoverable. i.e. start connectable undirected advertising
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_enterDiscoverable(uint32_t SDS_allow)
 {
@@ -650,103 +746,6 @@ void hidd_blelink_set_state(uint8_t newState)
 
             tmpObs = tmpObs->next;
         }
-    }
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// Become connected.
-/// Start SMP bonding/pairing process if not bonded but encryption is required
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_enterConnected(void)
-{
-    WICED_BT_TRACE("\nhidd_blelink_enterConnected");
-
-#ifdef ALLOW_SDS_IN_DISCOVERABLE
-    //stop discoverable timer
-    osapi_deactivateTimer(&blelink.discoverable_timer);
-
-    blelink.osapi_app_timer_running &= ~BLEHIDLINK_ADV_CONNECTABLE_UNDIRECTED_TIMER;
-    if ((blelink.osapi_app_timer_running >> 1) == 0)
-    {
-        blelink.osapi_app_timer_running = 0; // no more application osapi timer is running
-    }
-#endif
-
-    hidd_host_setAddrType(blelink.gatts_peer_addr, blelink.gatts_peer_addr_type);
-
-    // if dev does not agree with our setting, we change both to bonded
-    if (wiced_blehidd_is_device_bonded() ^ hidd_host_isBonded())
-    {
-        if (hidd_host_isBonded())
-        {
-            // this is bonded device, we have the bonding info..
-            WICED_BT_TRACE("\nset device bonded flag");
-            wiced_blehidd_set_device_bonded_flag(WICED_TRUE);
-        }
-        else
-        {
-            // already bonded in dev, we update our record
-            WICED_BT_TRACE("\nupdate bonded flag");
-            hidd_host_setBonded(WICED_TRUE);
-        }
-    }
-
-    hidd_blelink_set_state(HIDLINK_LE_CONNECTED);
-    // In any case, stop advertising
-//    wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
-
-    if(hidd_cfg()->security_requirement_mask)
-    {
-        if (!wiced_blehidd_is_device_bonded())
-        {
-            WICED_BT_TRACE("\nsend security req:");
-            wiced_bt_dev_sec_bond(blelink.gatts_peer_addr, blelink.gatts_peer_addr_type, BT_TRANSPORT_LE, 0, NULL);
-        }
-    }
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// Reconnecting to previous HID host.
-/// i.e. start high duty cycle directed advertising
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_enterReconnecting(void)
-{
-    WICED_BT_TRACE("\nhidd_blelink_enterReconnecting");
-    //if low battery shutdown, do nothing
-    if (wiced_hal_batmon_is_low_battery_shutdown())
-    {
-        return;
-    }
-
-#ifdef FATORY_TEST_SUPPORT
-    //do not start LE advertising when factory_mode == 1
-    if (factory_mode)
-        return;
-#endif
-
-    WICED_BT_TRACE("\nenterReconnecting");
-    //if reconnect timer is running, stop it
-    hidd_link_stop_reconnect_timer();
-
-    if (hidd_is_paired())
-    {
-        //NOTE!!! wiced_bt_start_advertisement could modify the value of bdAddr, so MUST use a copy.
-        uint8_t tmp_bdAddr[BD_ADDR_LEN];
-        memcpy(tmp_bdAddr, hidd_host_addr(), BD_ADDR_LEN);
-
-#ifdef WHITE_LIST_FOR_ADVERTISING
-        //add to white list
-        wiced_bt_ble_update_advertising_white_list(WICED_TRUE, tmp_bdAddr);
-#endif
-        // start high duty cycle directed advertising.
-        if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_HIGH, hidd_host_addr_type(), tmp_bdAddr))
-            WICED_BT_TRACE("\nFailed to start high duty cycle directed advertising!!!");
-
-        hidd_blelink_set_state(HIDLINK_LE_RECONNECTING);
-    }
-    else
-    {
-        hidd_blelink_enterDiscoverable(WICED_TRUE);
     }
 }
 
@@ -986,19 +985,6 @@ void hidd_blelink_conn_param_update(void)
                           hidd_cfg()->ble_scan_cfg.conn_supervision_timeout);
     }
     blelink.connection_param_updated = WICED_TRUE;
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// timeout handler
-/// \param arg - don't care
-/// \param overTimeInUs - don't care
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_connectionIdle_timerCb(INT32 args, UINT32 overTimeInUs)
-{
-    WICED_BT_TRACE("\nconnection Idle timeout");
-
-    //disconnect the link
-    hidd_blelink_disconnect();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

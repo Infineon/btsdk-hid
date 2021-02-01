@@ -1,10 +1,10 @@
 /*
- * Copyright 2016-2020, Cypress Semiconductor Corporation or a subsidiary of
- * Cypress Semiconductor Corporation. All Rights Reserved.
+ * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
- * materials ("Software"), is owned by Cypress Semiconductor Corporation
- * or one of its subsidiaries ("Cypress") and is protected by and subject to
+ * materials ("Software") is owned by Cypress Semiconductor Corporation
+ * or one of its affiliates ("Cypress") and is protected by and subject to
  * worldwide patent protection (United States and foreign),
  * United States copyright laws and international treaty provisions.
  * Therefore, you may use this Software only as provided in the license
@@ -13,7 +13,7 @@
  * If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
  * non-transferable license to copy, modify, and compile the Software
  * source code solely for use in connection with Cypress's
- * integrated circuit products. Any reproduction, modification, translation,
+ * integrated circuit products.  Any reproduction, modification, translation,
  * compilation, or representation of this Software except as specified
  * above is prohibited without the express written permission of Cypress.
  *
@@ -33,17 +33,16 @@
 
 /*******************************************************************************
 *
-* File Name: hidd_micaudio.c
+* File Name: hidd_audio.c
 *
 * This file implements the microphone for voice using Audio ADC
 *******************************************************************************/
 #ifdef SUPPORT_AUDIO
+#include "hidd_audio.h"
 #include "string.h"
-#include "wiced.h"
 #include "wiced_hal_gpio.h"
 #include "wiced_bt_event.h"
 #include "wiced_bt_trace.h"
-#include "hidd_audio.h"
 
 #define PCM_AUDIO_BUFFER_SIZE       120  // in 16-bit sample
 
@@ -66,7 +65,6 @@ uint8_t stopMicCommandPending = 0;
 AdcAudioFifo wicedAdcAudioFifo[BUFFER_ADC_AUDIO_FIFO_NUM] = {0};
 //AdcAudioFifo wicedAdcAudioFifo2[BUFFER_ADC_AUDIO_FIFO_NUM] = {0};
 
-
 #if AUDIO_DEBUG_ENABLE
 #define AUDIO_DUMP_SIZE 16000
 uint16_t audioDump[AUDIO_DUMP_SIZE];
@@ -76,7 +74,6 @@ uint32_t audioDumpIndex = 0;
 extern void wiced_bt_allowSlaveLatency(wiced_bool_t allow);
 extern int32_t custom_gain_boost;
 extern AdcAudioDrcSettings adc_audioDrcSettings;
-extern uint8_t stopMicCommandPending;
 
 #ifdef SBC_ENCODER
 #include "sbc_encoder.h"
@@ -126,12 +123,25 @@ static pin_en_mic_t pin_en_mic={0};
 
 #ifdef SUPPORT_DIGITAL_MIC
 extern void adc_pdm_pinconfig(UINT8 ch1, UINT8 risingEdge1, UINT8 ch2, UINT8 risingEdge2, UINT8 clk);
-
 static uint8_t gpioPDMInClk = WICED_P26;   // default PDM clk in case if app does not assign
 static uint8_t gpioPDMInCh1 = WICED_P29;   // default PDM data in case if app does not assign
 static uint8_t gpioPDMInCh2 = WICED_P29;
 #define pdm_in_ch1_rising_edge 1
 #define pdm_in_ch2_rising_edge 0
+
+////////////////////////////////////////////////////////////////////////////////
+/// Configure Audio pdm pins
+///
+/// \param clk, data gpio pins
+///
+/// \return none
+////////////////////////////////////////////////////////////////////////////////
+void hidd_mic_assign_mic_pdm_pins(uint8_t clk, uint8_t data)
+{
+    gpioPDMInClk = clk;
+    gpioPDMInCh1 = data;
+    gpioPDMInCh2 = data;
+}
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -149,22 +159,6 @@ void hidd_mic_assign_mic_en_pin(uint8_t gpio, wiced_bool_t disable_level)
     wiced_hal_gpio_configure_pin(gpio, (disable_level ? GPIO_PULL_UP : GPIO_PULL_DOWN) | GPIO_OUTPUT_ENABLE, disable_level);
     wiced_hal_gpio_slimboot_reenforce_cfg(gpio, GPIO_OUTPUT_ENABLE);
 }
-
-#ifdef SUPPORT_DIGITAL_MIC
-////////////////////////////////////////////////////////////////////////////////
-/// Configure Audio pdm pins
-///
-/// \param clk, data gpio pins
-///
-/// \return none
-////////////////////////////////////////////////////////////////////////////////
-void hidd_mic_assign_mic_pdm_pins(uint8_t clk, uint8_t data)
-{
-    gpioPDMInClk = clk;
-    gpioPDMInCh1 = data;
-    gpioPDMInCh2 = data;
-}
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Configure Audio ADC for microphone
@@ -284,7 +278,6 @@ void  hidd_mic_audio_init(void (*callback)(void*), void* context)
 #endif
 }
 
-
 ///////////////////////////////////////////////////////////////////////////////
 //  stop the audio and clear the buffer
 ///
@@ -292,7 +285,7 @@ void  hidd_mic_audio_init(void (*callback)(void*), void* context)
 ///
 /// \return none
 ///////////////////////////////////////////////////////////////////////////////
-void hidd_mic_audio_stop(void)
+void hidd_mic_audio_stop()
 {
     uint8_t i;
 
@@ -568,7 +561,6 @@ void micAudio_micAudioCallback(UINT8 *audioData, UINT32 receivedLength, UINT32 a
                 micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].sqn       = micAudioDriver.audioCounter++;
                 micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].ts        = 0; //(uint16_t) hiddcfa_BtClksSince(micAudioDriver.voicePktTime);
 
-
                 //BitMap describing the state of the FIFO:
                 // -------------------------------------------------------
                 //FIFO_IN_INDEX:  Bit 0-2
@@ -606,7 +598,6 @@ void micAudio_micAudioCallback(UINT8 *audioData, UINT32 receivedLength, UINT32 a
     {
         packetDelayCount--;
     }
-
 }
 
 
@@ -848,7 +839,7 @@ uint16_t hidd_mic_audio_get_audio_out_data(hidd_voice_report_t *audio_In, uint8_
         appUtils_cpuIntEnable(oldPosture);
 
         //if more voice events in the event queue than FIFO_CNT, the audio data inside older voice events is overwriten and out of sequence. Don't send.
-        //if (bleRemoteAppState->audioPacketInQueue < audio->audioFIFOCnt())
+        //if (app.audioPacketInQueue < audio->audioFIFOCnt())
         {
             if (WICED_HIDD_AUDIO_ENC_TYPE_PCM == audioEncType)
             {

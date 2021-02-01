@@ -1,10 +1,10 @@
 /*
- * Copyright 2016-2020, Cypress Semiconductor Corporation or a subsidiary of
- * Cypress Semiconductor Corporation. All Rights Reserved.
+ * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
- * materials ("Software"), is owned by Cypress Semiconductor Corporation
- * or one of its subsidiaries ("Cypress") and is protected by and subject to
+ * materials ("Software") is owned by Cypress Semiconductor Corporation
+ * or one of its affiliates ("Cypress") and is protected by and subject to
  * worldwide patent protection (United States and foreign),
  * United States copyright laws and international treaty provisions.
  * Therefore, you may use this Software only as provided in the license
@@ -13,7 +13,7 @@
  * If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
  * non-transferable license to copy, modify, and compile the Software
  * source code solely for use in connection with Cypress's
- * integrated circuit products. Any reproduction, modification, translation,
+ * integrated circuit products.  Any reproduction, modification, translation,
  * compilation, or representation of this Software except as specified
  * above is prohibited without the express written permission of Cypress.
  *
@@ -37,15 +37,15 @@
  *
  */
 #ifdef BLE_SUPPORT
+
+#include "hidd_lib.h"
 #include "wiced_bt_trace.h"
 #include "wiced_bt_dev.h"
 #include "wiced_bt_ble.h"
 #include "wiced_bt_gatt.h"
 #include "wiced_bt_cfg.h"
 #include "wiced_hal_gpio.h"
-#include "wiced_hal_nvram.h"
 #include "wiced_result.h"
-#include "hidd_lib.h"
 
 #ifdef OTA_FIRMWARE_UPGRADE
 #include "wiced_bt_ota_firmware_upgrade.h"
@@ -60,8 +60,6 @@
 extern Point    ecdsa256_public_key;
 #endif
 static uint8_t  ota_fw_upgrade_initialized = WICED_FALSE;
-
-extern void     bleremoteapp_ota_fw_upgrade_status(uint8_t status);
 #endif
 
 typedef struct {
@@ -490,11 +488,11 @@ wiced_bt_gatt_status_t hidd_gatts_init(wiced_blehidd_report_gatt_characteristic_
     gatt.gattAttributes = (attribute_t *) gAttrib;
     gatt.gattAttributes_size = gAttrib_len;
 
-    /* Register with stack to receive GATT callback */
-    if (wiced_bt_gatt_register( hidd_gatts_callback ) == WICED_BT_GATT_SUCCESS)
+    /* GATT DB Initialization */
+    if (wiced_bt_gatt_db_init( gatt_db, gatt_db_len ) == WICED_BT_GATT_SUCCESS)
     {
-        /* GATT DB Initialization */
-        if (wiced_bt_gatt_db_init( gatt_db, gatt_db_len ) == WICED_BT_GATT_SUCCESS)
+        /* Register with stack to receive GATT callback */
+        if (wiced_bt_gatt_register( hidd_gatts_callback ) == WICED_BT_GATT_SUCCESS)
         {
             wiced_blehidd_register_report_table(rptTable, rptTableNum);
             return WICED_BT_GATT_SUCCESS;
@@ -503,10 +501,18 @@ wiced_bt_gatt_status_t hidd_gatts_init(wiced_blehidd_report_gatt_characteristic_
     return WICED_BT_GATT_ERROR;
 }
 
+#ifdef FASTPAIR_ENABLE
+wiced_bool_t hidd_gatts_gfps_init(wiced_bt_gfps_provider_conf_t * fastpair_conf)
+{
+    fastpair_conf->p_gatt_cb = hidd_gatts_callback;
+    return wiced_bt_gfps_provider_init(fastpair_conf);
+}
+#endif
+
 /*
  *
  */
-wiced_bool_t hidd_gatt_set_data(uint8_t * ptr, uint16_t len)
+wiced_bool_t hidd_gatts_set_data(uint8_t * ptr, uint16_t len)
 {
     uint8_t i,j;
     uint8_t rpt_id = *ptr++;

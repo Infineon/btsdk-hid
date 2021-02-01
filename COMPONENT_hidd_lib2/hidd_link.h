@@ -1,10 +1,10 @@
 /*
- * Copyright 2016-2020, Cypress Semiconductor Corporation or a subsidiary of
- * Cypress Semiconductor Corporation. All Rights Reserved.
+ * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
- * materials ("Software"), is owned by Cypress Semiconductor Corporation
- * or one of its subsidiaries ("Cypress") and is protected by and subject to
+ * materials ("Software") is owned by Cypress Semiconductor Corporation
+ * or one of its affiliates ("Cypress") and is protected by and subject to
  * worldwide patent protection (United States and foreign),
  * United States copyright laws and international treaty provisions.
  * Therefore, you may use this Software only as provided in the license
@@ -13,7 +13,7 @@
  * If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
  * non-transferable license to copy, modify, and compile the Software
  * source code solely for use in connection with Cypress's
- * integrated circuit products. Any reproduction, modification, translation,
+ * integrated circuit products.  Any reproduction, modification, translation,
  * compilation, or representation of this Software except as specified
  * above is prohibited without the express written permission of Cypress.
  *
@@ -133,7 +133,7 @@ enum
     HIDD_LINK_RESTORE_FROM_AON,    /* Restore context from AON to SRAM */
 };
 
-typedef void hidd_link_app_poll_callback_t(void);
+typedef app_poll_callback_t hidd_link_app_poll_callback_t;
 typedef void hidd_link_app_connection_failed_callback_t(void);
 typedef void hidd_link_app_enter_pincode_entry_mode_callback_t(void);
 typedef void hidd_link_app_enter_passcode_entry_mode_callback_t(void);
@@ -270,7 +270,11 @@ const char * hidd_link_state_str(uint8_t state);
 ////////////////////////////////////////////////////////////////////////////////
 // hidd_link_aon_action_handler
 ////////////////////////////////////////////////////////////////////////////////
+#if is_SDS_capable
 void hidd_link_aon_action_handler(uint8_t  type);
+#else
+#define hidd_link_aon_action_handler(t)
+#endif
 
 #ifdef SUPPORT_CODE_ENTRY
 ////////////////////////////////////////////////////////////////////////////////

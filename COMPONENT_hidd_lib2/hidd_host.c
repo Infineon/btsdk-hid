@@ -1,10 +1,10 @@
 /*
- * Copyright 2016-2020, Cypress Semiconductor Corporation or a subsidiary of
- * Cypress Semiconductor Corporation. All Rights Reserved.
+ * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
- * materials ("Software"), is owned by Cypress Semiconductor Corporation
- * or one of its subsidiaries ("Cypress") and is protected by and subject to
+ * materials ("Software") is owned by Cypress Semiconductor Corporation
+ * or one of its affiliates ("Cypress") and is protected by and subject to
  * worldwide patent protection (United States and foreign),
  * United States copyright laws and international treaty provisions.
  * Therefore, you may use this Software only as provided in the license
@@ -13,7 +13,7 @@
  * If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
  * non-transferable license to copy, modify, and compile the Software
  * source code solely for use in connection with Cypress's
- * integrated circuit products. Any reproduction, modification, translation,
+ * integrated circuit products.  Any reproduction, modification, translation,
  * compilation, or representation of this Software except as specified
  * above is prohibited without the express written permission of Cypress.
  *
@@ -42,13 +42,9 @@
 *******************************************************************************/
 #include "wiced_bt_trace.h"
 #include "wiced_bt_cfg.h"
-#include "wiced_hal_nvram.h"
-#include "hidd_host.h"
+#include "hidd_lib.h"
 
 #define COMMIT_DELAY 1000     // 1 sec to commit
-
-//Host info VS ID
-#define   VS_HIDD_HOST_LIST  (WICED_NVRAM_VSID_START+1)
 
 #define HIDD_HOST_LIST_ELEMENT_SIZE sizeof(tHidd_HostInfo)
 #define HIDD_HOST_LIST_SIZE (HIDD_HOST_LIST_MAX * HIDD_HOST_LIST_ELEMENT_SIZE)
@@ -142,7 +138,7 @@ static void host_commitTimerCb( uint32_t arg )
 {
     wiced_result_t result;
 
-    wiced_hal_write_nvram( VS_HIDD_HOST_LIST, HIDD_HOST_LIST_SIZE, (uint8_t *) host.list, &result);
+    wiced_hal_write_nvram( VS_ID_HIDD_HOST_LIST, HIDD_HOST_LIST_SIZE, (uint8_t *) host.list, &result);
     // save host info to NVRAM
     if(result)
     {
@@ -550,7 +546,7 @@ void hidd_host_init(void)
     //timer to allow shut down sleep (SDS)
     wiced_init_timer( &host.commitTimer, host_commitTimerCb, 0, WICED_MILLI_SECONDS_TIMER );
 
-    if (wiced_hal_read_nvram(VS_HIDD_HOST_LIST, HIDD_HOST_LIST_SIZE, (uint8_t *)host.list, &result) == HIDD_HOST_LIST_SIZE)
+    if (wiced_hal_read_nvram(VS_ID_HIDD_HOST_LIST, HIDD_HOST_LIST_SIZE, (uint8_t *)host.list, &result) == HIDD_HOST_LIST_SIZE)
     {
         while (index < HIDD_HOST_LIST_MAX)
         {
@@ -718,82 +714,3 @@ wiced_bt_transport_t hidd_host_transport()
     return hidd_is_paired() ? host.list[0].transport : 0;
 }
 
-#if 0
-///////////////////////////////////////////////////////////////////////////////////////////////////
-/// report current reconnecting host is connected
-///
-/// \param first: when WICED_TRUE, reset reconnect host first one
-///               otherwise advanced to next one
-///
-/// \return reconnecting host info, NULL if no more host to reconnect
-//////////////////////////////////////////////////////////////////////////////////////////////////
-tHidd_HostInfo * hidd_reconnect(wiced_bool_t first)
-{
-    if (first)
-    {
-        // reset host index to top
-        host.reconnectHost = HOST_INFO_INDEX_TOP;
-    }
-    else
-    {
-        // next host
-        host.reconnectHost++;
-    }
-
-    return hidd_reconnect_info();
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-/// report current reconnecting host info
-///
-/// \param none
-///
-/// \return reconnecting host info, NULL if no more host to reconnect
-//////////////////////////////////////////////////////////////////////////////////////////////////
-tHidd_HostInfo * hidd_reconnect_info(void)
-{
-    // make sure it is a valid host
-    if (host.reconnect < count)
-    {
-        return host.list[reconnect];
-    }
-    return NULL;
-}
-
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-/// report current reconnecting host is connected
-///
-/// \param none
-///
-/// \return none
-//////////////////////////////////////////////////////////////////////////////////////////////////
-void wiced_ble_hidd_host_reconnected(void)
-{
-    // make sure it is a valid host
-    if (host.reconnect < count)
-    {
-        // if current connected host is not at the top, move it to top
-        if (host.reconnect != HOST_INFO_INDEX_TOP)
-        {
-            tHidd_HostInfo tempHost;
-
-            // save current host info
-            memcpy(tempHost, host.list[host.reconnect], HIDD_HOST_LIST_ELEMENT_SIZE);
-
-            // delete current host element
-            host_ShiftUp(host.reconnect);
-
-            // make room at the top
-            host_ShiftDown(HOST_INFO_INDEX_TOP);
-
-            // restore host info to the top
-            memcpy(host.list[HOST_INFO_INDEX_TOP], tempHost, HIDD_HOST_LIST_ELEMENT_SIZE);
-
-            host.reconnect = HOST_INFO_INDEX_TOP;
-
-            host_Update(0);
-        }
-    }
-}
-#endif

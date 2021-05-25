@@ -85,8 +85,8 @@ typedef struct
     uint16_t  gatts_conn_id;
     uint64_t  osapi_app_timer_start_instant;
     uint8_t   osapi_app_timer_running;
-#ifdef WHITE_LIST_FOR_ADVERTISING
-    uint8_t   adv_white_list_enabled;
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+    uint8_t   adv_filter_accept_list_enabled;
 #endif
 } blehid_aon_save_content_t;
 
@@ -200,8 +200,8 @@ typedef struct
     /// wake_from_SDS_timer_timeout_flag
     uint8_t wake_from_SDS_timer_timeout_flag;
 
-#ifdef WHITE_LIST_FOR_ADVERTISING
-    uint8_t   adv_white_list_enabled;
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+    uint8_t   adv_filter_accept_list_enabled;
 #endif
 
 #ifdef EASY_PAIR
@@ -280,7 +280,7 @@ wiced_bool_t  hidd_blelink_state_is(uint8_t state);
 
 /////////////////////////////////////////////////////////////////////////////////
 /// Connect
-/// As LE slave, it means start LE advertising
+/// As LE peripheral, it means start LE advertising
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_connect(void);
 
@@ -320,11 +320,11 @@ void hidd_blelink_conn_param_update(void);
 void hidd_blelink_conn_update_complete(void);
 
 /////////////////////////////////////////////////////////////////////////////////
-/// request assymmetric slave latency.
-/// when master doesn't accept slave's connection parameter update request,
-/// slave can enable assymmetric slave latency to lower power consumption
+/// request assymmetric peripheral latency.
+/// when central doesn't accept peripheral's connection parameter update request,
+/// peripheral can enable assymmetric peripheral latency to lower power consumption
 /////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_set_slave_latency(uint16_t slaveLatencyinmS);
+void hidd_blelink_set_peripheral_latency(uint16_t peripheralLatencyinmS);
 
 /////////////////////////////////////////////////////////////////////////////////
 /// set ble HID link connection Idle timer timeout value in seconds (default is 0, i.e. no timeout)

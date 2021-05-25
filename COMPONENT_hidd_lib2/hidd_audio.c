@@ -57,13 +57,17 @@ static tMicAudio micAudioDriver;
 uint32_t packetDelayCount;
 uint16_t audioBufSize16; // in 16-bit sample
 hidd_audio_encoding_t audioEncType;
-uint8_t stopMicCommandPending = 0;
+uint8_t hidd_mic_stop_command_pending = 0;
 
 //adc audio fifo number
 #define BUFFER_ADC_AUDIO_FIFO_NUM	25
 
 AdcAudioFifo wicedAdcAudioFifo[BUFFER_ADC_AUDIO_FIFO_NUM] = {0};
-//AdcAudioFifo wicedAdcAudioFifo2[BUFFER_ADC_AUDIO_FIFO_NUM] = {0};
+#ifdef SUPPORT_DIGITAL_MIC
+AdcAudioFifo wicedAdcAudioFifo2[BUFFER_ADC_AUDIO_FIFO_NUM] = {0};
+#else
+#define wicedAdcAudioFifo2 NULL
+#endif
 
 #if AUDIO_DEBUG_ENABLE
 #define AUDIO_DUMP_SIZE 16000
@@ -71,9 +75,18 @@ uint16_t audioDump[AUDIO_DUMP_SIZE];
 uint32_t audioDumpIndex = 0;
 #endif
 
+extern void wiced_bt_allowPeripheralLatency(wiced_bool_t allow);
+// deprecated and renamed
 extern void wiced_bt_allowSlaveLatency(wiced_bool_t allow);
+#define wiced_bt_allowPeripheralLatency(x) wiced_bt_allowSlaveLatency(x)
+
 extern int32_t custom_gain_boost;
 extern AdcAudioDrcSettings adc_audioDrcSettings;
+
+#ifdef ENABLE_ADC_AUDIO_ENHANCEMENTS
+extern AdcAudioFilterCfg_t adcAudioFilterData;
+#define eq_filter_enabled() (adcAudioFilterData.eqFilter.coeff[0])
+#endif
 
 #ifdef SBC_ENCODER
 #include "sbc_encoder.h"
@@ -108,6 +121,7 @@ extern uint32_t index_in_byte_pool;
 
 extern void audio_drc_loop_init(UINT8 pgaGain, UINT32 sampleRate);
 extern void adc_assignFilterData(AdcAudioFilterCfg_t * data);
+extern void adc_stopAudio_fix(void);
 
 extern UINT32 appUtils_cpuIntDisable(void);
 extern void   appUtils_cpuIntEnable(UINT32 _newPosture);
@@ -123,9 +137,8 @@ static pin_en_mic_t pin_en_mic={0};
 
 #ifdef SUPPORT_DIGITAL_MIC
 extern void adc_pdm_pinconfig(UINT8 ch1, UINT8 risingEdge1, UINT8 ch2, UINT8 risingEdge2, UINT8 clk);
-static uint8_t gpioPDMInClk = WICED_P26;   // default PDM clk in case if app does not assign
-static uint8_t gpioPDMInCh1 = WICED_P29;   // default PDM data in case if app does not assign
-static uint8_t gpioPDMInCh2 = WICED_P29;
+static uint8_t gpioPDMInClk = WICED_P27;   // default PDM clk in case if app does not assign
+static uint8_t gpioPDMInData = WICED_P26;   // default PDM data in case if app does not assign
 #define pdm_in_ch1_rising_edge 1
 #define pdm_in_ch2_rising_edge 0
 
@@ -138,9 +151,11 @@ static uint8_t gpioPDMInCh2 = WICED_P29;
 ////////////////////////////////////////////////////////////////////////////////
 void hidd_mic_assign_mic_pdm_pins(uint8_t clk, uint8_t data)
 {
+    extern uint8_t useWicedPDMAudio;
+    useWicedPDMAudio = TRUE;
+
     gpioPDMInClk = clk;
-    gpioPDMInCh1 = data;
-    gpioPDMInCh2 = data;
+    gpioPDMInData = data;
 }
 #endif
 
@@ -169,13 +184,8 @@ void hidd_mic_assign_mic_en_pin(uint8_t gpio, wiced_bool_t disable_level)
 ////////////////////////////////////////////////////////////////////////////////
 void hidd_mic_audio_config(hidd_microphone_config_t * config)
 {
-#ifdef SUPPORT_DIGITAL_MIC
-    adc_pdm_pinconfig(gpioPDMInCh1, pdm_in_ch1_rising_edge, gpioPDMInCh2, pdm_in_ch2_rising_edge, gpioPDMInClk);
-#endif
-
     adc_config();
-
-    adc_audioConfig(wicedAdcAudioFifo, BUFFER_ADC_AUDIO_FIFO_NUM, NULL);
+    adc_audioConfig(wicedAdcAudioFifo, BUFFER_ADC_AUDIO_FIFO_NUM, wicedAdcAudioFifo2);
 
     micAudioDriver.codec        = NULL;
     micAudioDriver.audioAdcData = config->audio_fifo;
@@ -209,13 +219,13 @@ void hidd_mic_audio_config_enhanced(uint8_t *pConfig)
     hidd_microphone_enhanced_config_t * pMicAudioConfiguration = (hidd_microphone_enhanced_config_t *)pConfig;
 
     audioEncType = pMicAudioConfiguration->audioEncType;
-    if (audioEncType == WICED_HIDD_AUDIO_ENC_TYPE_PCM)
+    if (audioEncType == HIDD_AUDIO_ENC_TYPE_PCM)
     {
         audioBufSize16 = PCM_AUDIO_BUFFER_SIZE;
     }
     else
     {
-        audioBufSize16 = WICED_HIDD_MIC_AUDIO_BUFFER_SIZE;
+        audioBufSize16 = HIDD_MIC_AUDIO_BUFFER_SIZE;
     }
 
     custom_gain_boost = pMicAudioConfiguration->custom_gain_boost;  //Increase gain 3.5 dB  1.496 = 10^(3.5/20)
@@ -245,6 +255,12 @@ void  hidd_mic_audio_init(void (*callback)(void*), void* context)
 #ifdef CELT_ENCODER
     CELT_ENC_PARAMS* ptr_enc_param = &enc_param;
 #endif
+
+    // turn codec power off by default
+    if (pin_en_mic.enabled)
+    {
+        wiced_hal_gpio_set_pin_output(pin_en_mic.gpio, pin_en_mic.disable_level);
+    }
 
     micAudioDriver.userFn = callback;
     micAudioDriver.master = context;
@@ -293,7 +309,11 @@ void hidd_mic_audio_stop()
 
     if (micAudioDriver.voiceStarted)
     {
+#ifdef SUPPORT_DIGITAL_MIC
+        adc_stopAudio_fix();
+#else
         adc_stopAudio();
+#endif
 
         // clear all data buffer
         for (i=0; i<micAudioDriver.fifo_cnt; i++)
@@ -304,50 +324,43 @@ void hidd_mic_audio_stop()
 
         micAudioDriver.fifoOutIndex = micAudioDriver.fifoInIndex = 0;
         micAudioDriver.voiceStarted = FALSE;
-        if(stopMicCommandPending == FALSE)
+        if(hidd_mic_stop_command_pending == FALSE)
         {
-            wiced_bt_allowSlaveLatency(TRUE);
+            wiced_bt_allowPeripheralLatency(TRUE);
         }
     }
 
-#ifdef SUPPORT_DIGITAL_MIC
-    //Do not know why, but need to call this function again
-    //or else the mic clk won't start
-    adc_pdm_pinconfig(gpioPDMInCh1, pdm_in_ch1_rising_edge, gpioPDMInCh2, pdm_in_ch2_rising_edge, gpioPDMInClk);
-#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 //  start Audio ADC
 ///////////////////////////////////////////////////////////////////////////////
+#ifdef SUPPORT_DIGITAL_MIC
+#define MIC_TYPE TRUE    // PDM MIC
+#else
+#define MIC_TYPE FALSE   // Analog MIC
+#endif
 void micAudio_startAudio()
 {
-    wiced_bt_allowSlaveLatency(FALSE);
+    wiced_bt_allowPeripheralLatency(FALSE);
     micAudioDriver.voiceStarted = 1;
 
-//    WICED_BT_TRACE("\nstart audio");
+//    WICED_BT_TRACE("\nmicAudio_startAudio");
 
     micAudioDriver.audioCounter = micAudioDriver.underflowCounter = micAudioDriver.overflowCounter = 0;
 
-    if (micAudioDriver.codec_sampling_freq == WICED_HIDD_CODEC_SAMP_FREQ_8K)
+#ifdef SUPPORT_DIGITAL_MIC
+    adc_pdm_pinconfig(gpioPDMInData, pdm_in_ch1_rising_edge, gpioPDMInData, pdm_in_ch2_rising_edge, gpioPDMInClk);
+#endif
+    if (micAudioDriver.codec_sampling_freq == HIDD_CODEC_SAMP_FREQ_8K)
     {
         packetDelayCount = micAudioDriver.audio_delay / 15;  //15 mSec per packet
-
-#ifdef SUPPORT_DIGITAL_MIC
-        adc_startAudio(8000, 16, micAudioDriver.audio_gain, micAudio_micAudioCallback, NULL, TRUE);
-#else
-        adc_startAudio(8000, 16, micAudioDriver.audio_gain, micAudio_micAudioCallback, NULL, FALSE);
-#endif
+        adc_startAudio(8000, 16, micAudioDriver.audio_gain, micAudio_micAudioCallback, NULL, MIC_TYPE);
     }
     else
     {
         packetDelayCount = micAudioDriver.audio_delay * 2 / 15;  //7.5 mSec per packet
-
-#ifdef SUPPORT_DIGITAL_MIC
-        adc_startAudio(16000, 16, micAudioDriver.audio_gain, micAudio_micAudioCallback, NULL, TRUE);
-#else
-        adc_startAudio(16000, 16, micAudioDriver.audio_gain, micAudio_micAudioCallback, NULL, FALSE);
-#endif
+        adc_startAudio(16000, 16, micAudioDriver.audio_gain, micAudio_micAudioCallback, NULL, MIC_TYPE);
     }
 
 #ifdef FATORY_TEST_SUPPORT
@@ -556,8 +569,8 @@ void micAudio_micAudioCallback(UINT8 *audioData, UINT32 receivedLength, UINT32 a
 
             if(micAudioDriver.dataCnt[micAudioDriver.fifoInIndex] == audioBufSize16)
             {
-                micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].reportId  = WICED_HIDD_VOICE_REPORT_ID;
-                micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].format    = WICED_HIDD_AUDIO_DATA;
+                micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].reportId  = HIDD_VOICE_REPORT_ID;
+                micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].format    = HIDD_AUDIO_DATA;
                 micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].sqn       = micAudioDriver.audioCounter++;
                 micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].ts        = 0; //(uint16_t) hiddcfa_BtClksSince(micAudioDriver.voicePktTime);
 
@@ -577,7 +590,6 @@ void micAudio_micAudioCallback(UINT8 *audioData, UINT32 receivedLength, UINT32 a
                 micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].buf_state |= (micAudioDriver.overflowCounter  & PCMBUFFSTATE_FIFO_MASK ) << PCMBUFFSTATE_FIFO_OVRFLOW_SHFT;
 
                 micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].dataCnt   = micAudioDriver.dataCnt[micAudioDriver.fifoInIndex];
-
                 if (++micAudioDriver.fifoInIndex >= micAudioDriver.fifo_cnt)
                 {
                     micAudioDriver.fifoInIndex = 0;
@@ -587,8 +599,14 @@ void micAudio_micAudioCallback(UINT8 *audioData, UINT32 receivedLength, UINT32 a
                 micAudioDriver.dataCnt[micAudioDriver.fifoInIndex] = 0;
                 micAudioDriver.audioAdcData[micAudioDriver.fifoInIndex].reportId = 0;
 
-                // trigger App for activity
-                wiced_app_event_serialize(micAudio_sendAudio, NULL);
+                if(adc_audioDrcSettings.enable == 1)
+                {   //FW DRC and EQ filtering already serialize it to MPAF thread
+                    micAudio_sendAudio(NULL);
+                }
+                else
+                {
+                    wiced_app_event_serialize(micAudio_sendAudio, NULL);
+                }
             }
 
             receivedLength = originalLength - receivedLength;
@@ -646,10 +664,10 @@ wiced_bool_t hidd_mic_audio_read_codec_setting(hidd_voice_control_report_t * Cnt
 
     switch (CntrlReport->rsvd)
     {
-        case WICED_HIDD_CODEC_SR:
+        case HIDD_CODEC_SR:
             {
                     CntrlReport->dataCnt = 2;
-                    if (micAudioDriver.codec_sampling_freq == WICED_HIDD_CODEC_SAMP_FREQ_8K)
+                    if (micAudioDriver.codec_sampling_freq == HIDD_CODEC_SAMP_FREQ_8K)
                         CntrlReport->dataBuffer[0] = 0x20;      //sampling Frequency 8kHz
                     else
                         CntrlReport->dataBuffer[0] = 0x40;      //sampling Frequency 16kHz
@@ -657,7 +675,7 @@ wiced_bool_t hidd_mic_audio_read_codec_setting(hidd_voice_control_report_t * Cnt
             }
             break;
 
-        case WICED_HIDD_CODEC_PCM:
+        case HIDD_CODEC_PCM:
             {
                     CntrlReport->dataCnt = 2;
                     CntrlReport->dataBuffer[0] = 0;         //sample format is Linear PCM
@@ -665,7 +683,7 @@ wiced_bool_t hidd_mic_audio_read_codec_setting(hidd_voice_control_report_t * Cnt
             }
             break;
 
-        case WICED_HIDD_CODEC_BPS:
+        case HIDD_CODEC_BPS:
             {
                     CntrlReport->dataCnt = 2;
                     CntrlReport->dataBuffer[0] = 0x10;     //Bit per Sample 16bits
@@ -673,7 +691,7 @@ wiced_bool_t hidd_mic_audio_read_codec_setting(hidd_voice_control_report_t * Cnt
             }
             break;
 
-        case WICED_HIDD_CODEC_PGA:
+        case HIDD_CODEC_PGA:
             {
                     INT16 temp = adcConfig.adc_ctl2_reg.bitmap_adc_ctl2.micPgaGainCtl;
                     CntrlReport->dataCnt = 2;
@@ -682,7 +700,7 @@ wiced_bool_t hidd_mic_audio_read_codec_setting(hidd_voice_control_report_t * Cnt
             }
             break;
 
-        case WICED_HIDD_CODEC_HPF:
+        case HIDD_CODEC_HPF:
             {
                     uint16_t temp = adcConfig.adc_filter_ctl1_reg.bitmap_adc_filter_ctl1.auxAdchpfNum;
                     CntrlReport->dataCnt = 2;
@@ -727,23 +745,23 @@ wiced_bool_t hidd_mic_audio_write_codec_setting(uint8_t codec_param, uint8_t *da
 #if 0
         switch (codec_param)
         {
-            case WICED_HIDD_CODEC_SR:
+            case HIDD_CODEC_SR:
                 op_success = codec->writeSR(dataBuffer[0]);
                 break;
 
-            case WICED_HIDD_CODEC_PCM:
+            case HIDD_CODEC_PCM:
                 op_success = codec->writePCM(dataBuffer[0]);
                 break;
 
-            case WICED_HIDD_CODEC_BPS:
+            case HIDD_CODEC_BPS:
                 op_success = codec->writeBPS(dataBuffer[0]);
                 break;
 
-            case WICED_HIDD_CODEC_PGA:
+            case HIDD_CODEC_PGA:
                 op_success = codec->writePGA( dataBuffer[0] | (dataBuffer[1] << 8) );
                 break;
 
-            case WICED_HIDD_CODEC_HPF:
+            case HIDD_CODEC_HPF:
                 op_success = codec->writeHPF( dataBuffer[0] | (dataBuffer[1] << 8)  );
                 break;
 
@@ -841,7 +859,7 @@ uint16_t hidd_mic_audio_get_audio_out_data(hidd_voice_report_t *audio_In, uint8_
         //if more voice events in the event queue than FIFO_CNT, the audio data inside older voice events is overwriten and out of sequence. Don't send.
         //if (app.audioPacketInQueue < audio->audioFIFOCnt())
         {
-            if (WICED_HIDD_AUDIO_ENC_TYPE_PCM == audioEncType)
+            if (HIDD_AUDIO_ENC_TYPE_PCM == audioEncType)
             {
                 //first byte is sequence number
                 audio_outData[0] = outRpt.sqn & 0xFF;
@@ -851,7 +869,7 @@ uint16_t hidd_mic_audio_get_audio_out_data(hidd_voice_report_t *audio_In, uint8_
                 audio_outData_len = 1 + PCM_AUDIO_BUFFER_SIZE*2;
             }
 #ifdef CELT_ENCODER
-            else if (WICED_HIDD_AUDIO_ENC_TYPE_CELT == audioEncType)
+            else if (HIDD_AUDIO_ENC_TYPE_CELT == audioEncType)
             {
                 //first byte is sequence number
                 audio_outData[0] = outRpt.sqn & 0xFF;
@@ -866,7 +884,7 @@ uint16_t hidd_mic_audio_get_audio_out_data(hidd_voice_report_t *audio_In, uint8_
             }
 #endif
 #ifdef ADPCM_ENCODER
-            else if (WICED_HIDD_AUDIO_ENC_TYPE_ADPCM == audioEncType)
+            else if (HIDD_AUDIO_ENC_TYPE_ADPCM == audioEncType)
             {
                 //set header first, then encode. so "Prev pred" and "index" reflect the correct value
 
@@ -878,7 +896,7 @@ uint16_t hidd_mic_audio_get_audio_out_data(hidd_voice_report_t *audio_In, uint8_
                 audio_outData[4] = adpcm_enc_state.valprev & 0xFF;
                 audio_outData[5] = adpcm_enc_state.index & 0xFF;
 
-                encode(&adpcm_enc_state, outRpt.dataBuffer, WICED_HIDD_MIC_AUDIO_BUFFER_SIZE, &audio_outData[6]);
+                encode(&adpcm_enc_state, outRpt.dataBuffer, HIDD_MIC_AUDIO_BUFFER_SIZE, &audio_outData[6]);
 
                 audio_outData_len = 134;  //6 bytes header + 128 bytes ADPCM data
             }

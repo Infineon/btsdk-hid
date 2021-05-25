@@ -179,9 +179,19 @@ void hidd_host_remove_all(void);
 uint8_t hidd_host_addr_type();
 
 ///////////////////////////////////////////////////////////////////////////////
-/// hidd_enter_pairing(BOOLEAN)
+/// hidd_enter_pairing() -- force to enter paging
 ///////////////////////////////////////////////////////////////////////////////
 void hidd_enter_pairing();
+
+///////////////////////////////////////////////////////////////////////////////
+/// hidd_pairing
+///  If link is connected, it disables link and enter pairing.
+///  If link is already in discovery:
+///     If in BR/EDR discovery --> enters LE discovery
+///     If in LE discovery --> stops pairing.
+///  If link is disconnected --> do BR/EDR pairing if supported. Otherwise, do LE pairing
+///////////////////////////////////////////////////////////////////////////////
+void hidd_pairing();
 
 /******************************************************************************************/
 // Sleep functions /////////////////////////////////////////////////////////////////////////

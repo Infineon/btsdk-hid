@@ -332,6 +332,16 @@ void bt_accept_pairing( BOOLEAN enable )
 /////////////////////////////////////////////////////////////////////////////////////////////
 void hidd_enter_pairing()
 {
+#ifdef BR_EDR_SUPPORT
+    bt_accept_pairing(START_PAIRING); // start BT pairing
+#elif defined(BLE_SUPPORT)
+    ble_accept_pairing(START_PAIRING); // start LE pairing
+#endif
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+void hidd_pairing()
+{
     if (hidd_link_is_connected())
     {
         hidd_link_disconnect();
@@ -354,11 +364,7 @@ void hidd_enter_pairing()
         return;
     }
 #endif
-#ifdef BR_EDR_SUPPORT
-    bt_accept_pairing(START_PAIRING); // start BT pairing
-#elif defined(BLE_SUPPORT)
-    ble_accept_pairing(START_PAIRING); // start LE pairing
-#endif
+    hidd_enter_pairing();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////

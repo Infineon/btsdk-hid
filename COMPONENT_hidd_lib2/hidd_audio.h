@@ -30,8 +30,8 @@
  * of such system or application assumes all risk of such use and in doing
  * so agrees to indemnify Cypress against all liability.
  */
-#ifndef __WICED_HIDD_MIC_AUDIO_H__
-#define __WICED_HIDD_MIC_AUDIO_H__
+#ifndef __HIDD_MIC_AUDIO_H__
+#define __HIDD_MIC_AUDIO_H__
 
 #include "adc.h"
 
@@ -47,9 +47,9 @@
 */
 
 //Fixed report ID for voice
-#define WICED_HIDD_VOICE_REPORT_ID      0xF7
+#define HIDD_VOICE_REPORT_ID      0xF7
 //Fixed report ID for voice ctrl
-#define WICED_HIDD_VOICE_CTL_REPORT_ID  0xF8
+#define HIDD_VOICE_CTL_REPORT_ID  0xF8
 
 #ifdef SUPPORT_AUDIO
 #include "wiced_audiocodec_interface.h"
@@ -57,82 +57,79 @@
 
  #ifdef SBC_ENCODER
   #ifdef ATT_MTU_SIZE_180
-   #define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 360     //120*n in 16-bit sample
+   #define HIDD_MIC_AUDIO_BUFFER_SIZE 360     //120*n in 16-bit sample
   #else
-   #define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 120
+   #define HIDD_MIC_AUDIO_BUFFER_SIZE 120
   #endif
  #endif
 
  #ifdef CELT_ENCODER
-  #define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 320     //16-bit sample
+  #define HIDD_MIC_AUDIO_BUFFER_SIZE 320     //16-bit sample
  #endif
 
  #ifdef ADPCM_ENCODER
-  #define WICED_HIDD_MIC_AUDIO_BUFFER_SIZE 256     //16-bit sample
+  #define HIDD_MIC_AUDIO_BUFFER_SIZE 256     //16-bit sample
  #endif
-
- #define pdm_sample_in_rising_edge 1
- #define pdm_sample_in_falling_edge 0
 
 enum
 {
-    WICED_HIDD_AUDIO_BUTTON_NONE     = 0x00,   // For cases when remote does not have a dedicated audio button
-    WICED_HIDD_AUDIO_BUTTON_SEND_MSG = 0x01,   // For cases when remote requests host to send the correct command:
-                                                // RC-> Host:   WICED_HIDD_RC_MIC_START_REQ,
-                                                // Host->RC:    WICED_HIDD_MIC_START
-    WICED_HIDD_AUDIO_BUTTON_SEND_PCM = 0x02,   // For cases when remote starts/stops audio streaming upon button
+    HIDD_AUDIO_BUTTON_NONE     = 0x00,   // For cases when remote does not have a dedicated audio button
+    HIDD_AUDIO_BUTTON_SEND_MSG = 0x01,   // For cases when remote requests host to send the correct command:
+                                         //  RC-> Host:   HIDD_RC_MIC_START_REQ,
+                                         //  Host->RC:    HIDD_MIC_START
+    HIDD_AUDIO_BUTTON_SEND_PCM = 0x02,   // For cases when remote starts/stops audio streaming upon button
                                                 // PCM data is sent for as long as the audio key is held down
 };
 
 enum
 {
-    WICED_HIDD_AUDIO_DATA             = 0x01,
-    WICED_HIDD_MIC_START              = 0x02,
-    WICED_HIDD_MIC_STOP               = 0x03,
-    WICED_HIDD_SPK_START              = 0x04,
-    WICED_HIDD_SPK_STOP               = 0x05,
+    HIDD_AUDIO_DATA             = 0x01,
+    HIDD_MIC_START              = 0x02,
+    HIDD_MIC_STOP               = 0x03,
+    HIDD_SPK_START              = 0x04,
+    HIDD_SPK_STOP               = 0x05,
 
-    WICED_HIDD_RC_CODECSETTINGS_RD_REQ    = 0x06,
-    WICED_HIDD_RC_CODECSETTINGS_RD_ACK    = 0x07,
-    WICED_HIDD_RC_CODECSETTINGS_WT_REQ    = 0x08,
-    WICED_HIDD_RC_CODECSETTINGS_WT_ACK    = 0x09,
-    WICED_HIDD_RC_VOICEMODE_RD_REQ        = 0x0A,
-    WICED_HIDD_RC_VOICEMODE_RD_ACK        = 0x0B,
+    HIDD_RC_CODECSETTINGS_RD_REQ    = 0x06,
+    HIDD_RC_CODECSETTINGS_RD_ACK    = 0x07,
+    HIDD_RC_CODECSETTINGS_WT_REQ    = 0x08,
+    HIDD_RC_CODECSETTINGS_WT_ACK    = 0x09,
+    HIDD_RC_VOICEMODE_RD_REQ        = 0x0A,
+    HIDD_RC_VOICEMODE_RD_ACK        = 0x0B,
 
-    WICED_HIDD_RC_MIC_START_REQ       = 0x0C,
-    WICED_HIDD_RC_MIC_STOP_REQ        = 0x0D,
-    WICED_HIDD_RC_SPEAKER_START_REQ   = 0x0E,
-    WICED_HIDD_RC_SPEAKER_STOP_REQ    = 0x0F,
-    WICED_HIDD_PHONECALL_START        = 0x10,
-    WICED_HIDD_PHONECALL_STOP         = 0x11,
-    WICED_HIDD_RC_PHONECALL_START_REQ = 0x12,
-    WICED_HIDD_RC_PHONECALL_END_REQ   = 0x13,
+    HIDD_RC_MIC_START_REQ       = 0x0C,
+    HIDD_RC_MIC_STOP_REQ        = 0x0D,
+    HIDD_RC_SPEAKER_START_REQ   = 0x0E,
+    HIDD_RC_SPEAKER_STOP_REQ    = 0x0F,
+    HIDD_PHONECALL_START        = 0x10,
+    HIDD_PHONECALL_STOP         = 0x11,
+    HIDD_RC_PHONECALL_START_REQ = 0x12,
+    HIDD_RC_PHONECALL_END_REQ   = 0x13,
 
 };
 
 enum hidd_audio_encoding_e
 {
-    WICED_HIDD_AUDIO_ENC_TYPE_PCM  = 0,
-    WICED_HIDD_AUDIO_ENC_TYPE_mSBC = 1,
-    WICED_HIDD_AUDIO_ENC_TYPE_CELT = 2,
-    WICED_HIDD_AUDIO_ENC_TYPE_ADPCM = 3,
-    WICED_HIDD_AUDIO_ENC_TYPE_INVALID = 0xFF  // keep this at the end
+    HIDD_AUDIO_ENC_TYPE_PCM  = 0,
+    HIDD_AUDIO_ENC_TYPE_mSBC = 1,
+    HIDD_AUDIO_ENC_TYPE_CELT = 2,
+    HIDD_AUDIO_ENC_TYPE_ADPCM = 3,
+    HIDD_AUDIO_ENC_TYPE_INVALID = 0xFF  // keep this at the end
 };
 typedef uint8_t hidd_audio_encoding_t;
 
 enum sample_freq_e
 {
-    WICED_HIDD_CODEC_SAMP_FREQ_8K = 0,
-    WICED_HIDD_CODEC_SAMP_FREQ_16K = 1,
+    HIDD_CODEC_SAMP_FREQ_8K = 0,
+    HIDD_CODEC_SAMP_FREQ_16K = 1,
 };
 
 enum hidd_audio_codec_param_e
 {
-    WICED_HIDD_CODEC_SR   = 0,
-    WICED_HIDD_CODEC_PCM  = 1,
-    WICED_HIDD_CODEC_PGA  = 2,
-    WICED_HIDD_CODEC_BPS  = 3,
-    WICED_HIDD_CODEC_HPF  = 4,
+    HIDD_CODEC_SR   = 0,
+    HIDD_CODEC_PCM  = 1,
+    HIDD_CODEC_PGA  = 2,
+    HIDD_CODEC_BPS  = 3,
+    HIDD_CODEC_HPF  = 4,
 };
 
 
@@ -146,7 +143,7 @@ typedef struct
     uint16_t buf_state;                // buffer state
     uint16_t rsvd;                     // reserved
     uint16_t dataCnt;                  // sizeof(array(databuffer[]))
-    int16_t  dataBuffer[WICED_HIDD_MIC_AUDIO_BUFFER_SIZE];  // Audo data
+    int16_t  dataBuffer[HIDD_MIC_AUDIO_BUFFER_SIZE];  // Audo data
 } hidd_voice_report_t;
 
 typedef struct
@@ -376,5 +373,8 @@ void hidd_mic_assign_mic_pdm_pins(uint8_t clk, uint8_t data);
 ////////////////////////////////////////////////////////////////////////////////
 void hidd_mic_set_codec_sampling_freq(uint8_t freq);
 
+////////////////////////////////////////////////////////////////////////////////
+extern uint8_t hidd_mic_stop_command_pending;
+
 #endif // AUDIO_SUPPORT
-#endif // __WICED_HIDD_MIC_AUDIO_H__
+#endif // __HIDD_MIC_AUDIO_H__

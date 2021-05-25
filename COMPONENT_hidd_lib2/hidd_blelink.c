@@ -58,6 +58,9 @@ uint8_t factory_mode = 0;
 extern uint8_t force_sleep_in_HID_mode;
 #endif
 
+#ifdef EASY_PAIR
+#endif
+
 PLACE_DATA_IN_RETENTION_RAM blehid_aon_save_content_t   ble_aon_data;
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -79,6 +82,214 @@ void hidd_blelink_connectionIdle_timerCb(INT32 args, UINT32 overTimeInUs)
     //disconnect the link
     hidd_blelink_disconnect();
 }
+
+#ifdef EASY_PAIR
+/////////////////////////////////////////////////////////////////////////////////
+/// initialize easy pair data
+/////////////////////////////////////////////////////////////////////////////////
+void easyPairInit()
+{
+    blelink.easyPair_deviceIndex = INVALID_INDEX;
+    blelink.easyPair.availableSlots = MAX_DEVICES;
+    memset((void*)&blelink.easyPair.device[0], 0, sizeof(EASY_PAIR_CANDIDATE)*MAX_DEVICES);
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/// check if device existed or not
+///
+/// \param  p_scan_result - pointer to scan result data
+///
+/// \return 0 - not existed
+///         1 - existed
+/////////////////////////////////////////////////////////////////////////////////
+uint8_t easyPairCheckExistDevices(wiced_bt_ble_scan_results_t *p_scan_result)
+{
+    uint8_t j, ret = 0;
+
+    for(j = 0; j < MAX_DEVICES; j++)
+    {
+        //check to see if device i is valid
+        if(blelink.easyPair.device[j].valid == VALID_ID)
+        {
+            //if so, check to see if bd addr matches
+            if(!memcmp( p_scan_result->remote_bd_addr , blelink.easyPair.device[j].wd_addr , BD_ADDR_LEN))
+            {
+                //sum the rssi
+                blelink.easyPair.device[j].rssi_total += p_scan_result->rssi;
+                blelink.easyPair.device[j].rssi_count++;
+                return 1;
+            }
+        }
+    }
+
+    return ret;
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/// handles the scan results
+///
+/// \param  p_scan_result - pointer to scan result data
+/// \param  p_adv_data - pointer to advertising data
+///
+/// \return 0 - not existed
+///         1 - existed
+/////////////////////////////////////////////////////////////////////////////////
+void hidd_blelink_easyPair_scan_result_cback( wiced_bt_ble_scan_results_t *p_scan_result, uint8_t *p_adv_data )
+{
+    uint8_t *p_data;
+    uint8_t length;
+    uint8_t temp;
+    uint8_t manu = 0;
+    uint8_t tx = 0;
+    uint8_t manufacture_id[3] = {0x00, 0x0F, 0x01};
+
+    if ( p_scan_result )
+    {
+        // Advertisement data should have Advertisement type BTM_BLE_ADVERT_TYPE_MANUFACTURER
+        p_data = wiced_bt_ble_check_advertising_data( p_adv_data, BTM_BLE_ADVERT_TYPE_MANUFACTURER, &length );
+
+        //easy pair requires manufacturer id to be 0x00 0x0F 0x01
+        if ( ( p_data == NULL ) || ( length != 3 ) || ( memcmp( p_data, manufacture_id, 3 ) != 0 ) )
+        {
+            // wrong device
+            return;
+        }
+        else
+        {
+            manu = 1;
+        }
+
+        // Advertisement data should have Advertisement type BTM_BLE_ADVERT_TYPE_TX_POWER
+        p_data = wiced_bt_ble_check_advertising_data( p_adv_data, BTM_BLE_ADVERT_TYPE_TX_POWER, &length );
+
+        //easy pair tx power must be 0x00
+        if ( ( p_data == NULL ) || ( length != 1 ) || (p_data[0] != 0 ) )
+        {
+            // wrong device
+            return;
+        }
+        else
+        {
+            tx = 1;
+        }
+
+
+        //if both match proceed check to see if device exists.  if not, add it.
+        if(manu & tx)
+        {
+            //this is a valid candidate
+            //check to see if it is already in the list
+            if(easyPairCheckExistDevices(p_scan_result))
+            {
+                return;
+            }
+
+            //if there is a room, add the device
+            if(blelink.easyPair.availableSlots != 0)
+            {
+                temp = MAX_DEVICES - blelink.easyPair.availableSlots;
+                blelink.easyPair.device[temp].addressType = p_scan_result->ble_addr_type;
+                memcpy(blelink.easyPair.device[temp].wd_addr, p_scan_result->remote_bd_addr, BD_ADDR_LEN);
+                blelink.easyPair.device[temp].rssi_total =  p_scan_result->rssi;
+                blelink.easyPair.device[temp].rssi_count++;
+                blelink.easyPair.device[temp].valid = VALID_ID;
+                blelink.easyPair.availableSlots--;
+            }
+        }
+
+    }
+    else
+    {
+        WICED_BT_TRACE("\nScan completed" );
+        if (blelink.easyPair_deviceIndex != INVALID_INDEX)
+        {
+            // start high duty cycle directed advertising.
+            wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_HIGH,
+                                       blelink.easyPair.device[blelink.easyPair_deviceIndex].addressType,
+                                       blelink.easyPair.device[blelink.easyPair_deviceIndex].wd_addr);
+
+            hidd_blelink_set_state(HIDLINK_LE_RECONNECTING);
+
+        }
+        else
+        {
+            hidd_blelink_set_state(HIDLINK_LE_DISCONNECTED);
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/// timeout hander
+/// this function will determine if there is a valid easy pair
+/// candidate to connect to
+///
+/// \param arg - don't care
+/////////////////////////////////////////////////////////////////////////////////
+void hidd_blelink_easyPair_timerCb(uint32_t arg)
+{
+    uint8_t i;
+    uint8_t highest_rssi_index = INVALID_INDEX;
+    int32_t highest_rssi=INVALID_RSSI;
+    int32_t rssi_avg;
+
+    WICED_BT_TRACE("\nhidd_blelink_easyPair_timerCb");
+
+    //stop timer
+    if (wiced_is_timer_in_use(&blelink.easyPair_timer))
+    {
+        wiced_stop_timer(&blelink.easyPair_timer);
+    }
+
+    // find the average rssi of each device and
+    // also find which one has the highest rssi to connect to
+    for(i = 0; i < MAX_DEVICES; i++)
+    {
+        if(blelink.easyPair.device[i].valid == VALID_ID)
+        {
+                rssi_avg = blelink.easyPair.device[i].rssi_total / blelink.easyPair.device[i].rssi_count;
+
+                if( rssi_avg > highest_rssi)
+                {
+                    highest_rssi = rssi_avg;
+                    highest_rssi_index = i;
+                }
+        }
+    }
+
+    //if a valid candid was found, make a connection to valid
+    // device with highest rssi
+    if(highest_rssi_index != INVALID_INDEX)
+    {
+        blelink.easyPair_deviceIndex = highest_rssi_index;
+    }
+
+    //turn off scans
+    wiced_bt_ble_scan( BTM_BLE_SCAN_TYPE_NONE, 0, hidd_blelink_easyPair_scan_result_cback );
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/// register for notification of LE Advertising Report Event and
+/// enable scan and start scan timer
+/////////////////////////////////////////////////////////////////////////////////
+void hidd_blelink_easyPair_scan(void)
+{
+    wiced_bt_ble_scan(BTM_BLE_SCAN_TYPE_HIGH_DUTY, 0, hidd_blelink_easyPair_scan_result_cback);
+
+    //start easy pair scan timer
+    wiced_start_timer(&blelink.easyPair_timer, EASY_PAIR_SCAN_TIMEOUT *1000); // start 5 seconds timer. timeout in ms
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/// start easy pair
+/////////////////////////////////////////////////////////////////////////////////
+void hidd_blelink_easyPair(uint32_t arg)
+{
+    WICED_BT_TRACE("\nhidd_blelink_easyPair");
+
+    easyPairInit();
+    hidd_blelink_easyPair_scan();
+}
+#endif //#ifdef EASY_PAIR
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// ble hid link init
@@ -138,9 +349,9 @@ void hidd_blelink_enterReconnecting(void)
         uint8_t tmp_bdAddr[BD_ADDR_LEN];
         memcpy(tmp_bdAddr, hidd_host_addr(), BD_ADDR_LEN);
 
-#ifdef WHITE_LIST_FOR_ADVERTISING
-        //add to white list
-        wiced_bt_ble_update_advertising_white_list(WICED_TRUE, tmp_bdAddr);
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+        //add to Filter Accept List
+        wiced_bt_ble_update_advertising_filter_accept_list(WICED_TRUE, tmp_bdAddr);
 #endif
         // start high duty cycle directed advertising.
         if (wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_HIGH, hidd_host_addr_type(), tmp_bdAddr))
@@ -259,15 +470,15 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
                 }
                 else
                 {
- #ifdef WHITE_LIST_FOR_ADVERTISING
-                    //if advertising white list is enabled before enter SDS
-                    if (hidd_host_isBonded() && blelink.adv_white_list_enabled)
+ #ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+                    //if advertising Filter Accept List is enabled before enter SDS
+                    if (hidd_host_isBonded() && blelink.adv_filter_accept_list_enabled)
                     {
-                        //add to white list
-                        wiced_bt_ble_update_advertising_white_list(WICED_TRUE, hidd_host_addr());
+                        //add to Filter Accept List
+                        wiced_bt_ble_update_advertising_filter_accept_list(WICED_TRUE, hidd_host_addr());
 
-                        //update advertising filer policy to use white list to filter scan and connect request
-                        wiced_btm_ble_update_advertisement_filter_policy(blelink.adv_white_list_enabled);
+                        //update advertising filer policy to use Filter Accept List to filter scan and connect request
+                        wiced_btm_ble_update_advertisement_filter_policy(blelink.adv_filter_accept_list_enabled);
                     }
  #endif
                     hidd_blelink_enterDiscoverable(WICED_FALSE);
@@ -509,11 +720,11 @@ void hidd_blelink_directed_adv_stop(void)
 #if 0
     hidd_blelink_set_state(HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED);
 #else
- #ifdef WHITE_LIST_FOR_ADVERTISING
-    //update advertising filer policy to use white list to filter scan and connect request
+ #ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+    //update advertising filer policy to use Filter Accept List to filter scan and connect request
     wiced_btm_ble_update_advertisement_filter_policy(0x03);
 
-    blelink.adv_white_list_enabled = 0x03;
+    blelink.adv_filter_accept_list_enabled = 0x03;
  #endif
 
     // start undirected connectable advertising.
@@ -543,7 +754,7 @@ wiced_bool_t  hidd_blelink_state_is(uint8_t state)
 
 /////////////////////////////////////////////////////////////////////////////////
 /// Connect
-/// As LE slave, it means start LE advertising
+/// As LE peripheral, it means start LE advertising
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_connect(void)
 {
@@ -608,9 +819,9 @@ void hidd_blelink_enterDisconnected(void)
 {
 //    WICED_BT_TRACE("\nLE enterDisconnected");
 
-#ifdef WHITE_LIST_FOR_ADVERTISING
-    //clear white list
-    wiced_bt_ble_clear_white_list();
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+    //clear Filter Accept List
+    wiced_bt_ble_clear_filter_accept_list();
 #endif
 
     hidd_blelink_set_state(HIDLINK_LE_DISCONNECTED);
@@ -690,11 +901,11 @@ void hidd_blelink_allowDiscoverable(void)
     //stop advertising anyway
     wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
 
-#ifdef WHITE_LIST_FOR_ADVERTISING
-    //set advertising filer policy to default (white list is not used)
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+    //set advertising filer policy to default (Filter Accept List is not used)
     wiced_btm_ble_update_advertisement_filter_policy(0);
 
-    blelink.adv_white_list_enabled = 0;
+    blelink.adv_filter_accept_list_enabled = 0;
 #endif
 
     if (blelink.subState != HIDLINK_LE_CONNECTED)
@@ -837,16 +1048,16 @@ void hidd_blelink_virtual_cable_unplug(void)
     if (hidd_host_isBonded())
     {
         uint8_t *bonded_bdadr = hidd_host_addr();
-#ifdef WHITE_LIST_FOR_ADVERTISING
-        //stop advertising anyway before white list operation
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+        //stop advertising anyway before Filter Accept List operation
         wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
 
-        //remove from white list
-        WICED_BT_TRACE("\nremove from white list : %B", bonded_bdadr);
-        wiced_bt_ble_update_advertising_white_list(WICED_FALSE, bonded_bdadr);
+        //remove from Filter Accept List
+        WICED_BT_TRACE("\nremove from Filter Accept List : %B", bonded_bdadr);
+        wiced_bt_ble_update_advertising_filter_accept_list(WICED_FALSE, bonded_bdadr);
 
         //clear whitlist
-        wiced_bt_ble_clear_white_list();
+        wiced_bt_ble_clear_filter_accept_list();
 #endif
 
         WICED_BT_TRACE("\nremove bonded device : %B", bonded_bdadr);
@@ -859,11 +1070,11 @@ void hidd_blelink_virtual_cable_unplug(void)
     WICED_BT_TRACE("\nclear device bonded flag");
     wiced_blehidd_set_device_bonded_flag(WICED_FALSE);
 
-#ifdef WHITE_LIST_FOR_ADVERTISING
-    //set advertising filer policy to default (white list not used)
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+    //set advertising filer policy to default (Filter Accept List not used)
     wiced_btm_ble_update_advertisement_filter_policy(0);
 
-    blelink.adv_white_list_enabled = 0;
+    blelink.adv_filter_accept_list_enabled = 0;
 #endif
 
     if (blelink.subState == HIDLINK_LE_CONNECTED)
@@ -916,22 +1127,22 @@ void hidd_blelink_set_connection_Idle_timeout_value(uint16_t value)
 }
 
 /////////////////////////////////////////////////////////////////////////////////
-/// request asymmetric slave latency.
-/// this is useful when master doesn't accept the connection parameter update req
-/// slave can enable asymmetric slave latency to lower power consumption
+/// request asymmetric peripheral latency.
+/// this is useful when central doesn't accept the connection parameter update req
+/// peripheral can enable asymmetric peripheral latency to lower power consumption
 /////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_set_slave_latency(uint16_t slaveLatencyinmS)
+void hidd_blelink_set_peripheral_latency(uint16_t peripheralLatencyinmS)
 {
-    UINT16 latency_plus_one = slaveLatencyinmS/wiced_blehidd_get_connection_interval() * 4/5;
+    UINT16 latency_plus_one = peripheralLatencyinmS/wiced_blehidd_get_connection_interval() * 4/5;
 
     hidd_cfg()->ble_scan_cfg.conn_latency = latency_plus_one - 1;
     hidd_cfg()->ble_scan_cfg.conn_min_interval =
     hidd_cfg()->ble_scan_cfg.conn_max_interval = wiced_blehidd_get_connection_interval();
 
-    WICED_BT_TRACE("\nhidd_blelink_set_slave_latency: interval=%d, slavelatency=%d",
+    WICED_BT_TRACE("\nhidd_blelink_set_peripheral_latency: interval=%d, peripherallatency=%d",
                hidd_cfg()->ble_scan_cfg.conn_min_interval,
                hidd_cfg()->ble_scan_cfg.conn_latency);
-    wiced_blehidd_set_asym_slave_latency(wiced_blehidd_get_connection_handle(), hidd_cfg()->ble_scan_cfg.conn_latency);
+    wiced_blehidd_set_asym_peripheral_latency(wiced_blehidd_get_connection_handle(), hidd_cfg()->ble_scan_cfg.conn_latency);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -948,18 +1159,18 @@ wiced_bool_t hidd_blelink_conn_param_updated()
 void hidd_blelink_conn_update_complete(void)
 {
     WICED_BT_TRACE("\nConnParamUpdate:Interval:%d, Latency:%d, Supervision TO:%d",
-                 wiced_blehidd_get_connection_interval(),wiced_blehidd_get_slave_latency(),wiced_blehidd_get_supervision_timeout());
+                 wiced_blehidd_get_connection_interval(),wiced_blehidd_get_peripheral_latency(),wiced_blehidd_get_supervision_timeout());
 
 #ifndef  SKIP_CONNECT_PARAM_UPDATE_EVEN_IF_NO_PREFERED
     if ((wiced_blehidd_get_connection_interval() < hidd_cfg()->ble_scan_cfg.conn_min_interval) ||
         (wiced_blehidd_get_connection_interval() > hidd_cfg()->ble_scan_cfg.conn_max_interval) ||
-        (wiced_blehidd_get_slave_latency() != hidd_cfg()->ble_scan_cfg.conn_latency))
+        (wiced_blehidd_get_peripheral_latency() != hidd_cfg()->ble_scan_cfg.conn_latency))
     {
-#ifdef ASSYM_SLAVE_LATENCY
-        //if actual slavelatency is smaller than desired slave latency, set asymmetric slave latency in the slave side
-        if (wiced_blehidd_get_connection_interval()*(wiced_blehidd_get_slave_latency() + 1) <
+#ifdef ASSYM_PERIPHERAL_LATENCY
+        //if actual peripheral latency is smaller than desired peripheral latency, set asymmetric peripheral latency in the peripheral side
+        if (wiced_blehidd_get_connection_interval()*(wiced_blehidd_get_peripheral_latency() + 1) <
                 hidd_cfg()->ble_scan_cfg.conn_min_interval * (hidd_cfg()->ble_scan_cfg.conn_latency + 1))
-            hidd_blelink_set_slave_latency(hidd_cfg()->ble_scan_cfg.conn_min_interval*(hidd_cfg()->ble_scan_cfg.conn_latency+1)*5/4);
+            hidd_blelink_set_peripheral_latency(hidd_cfg()->ble_scan_cfg.conn_min_interval*(hidd_cfg()->ble_scan_cfg.conn_latency+1)*5/4);
 #else
         hidd_blelink_conn_param_update();
 #endif
@@ -975,7 +1186,7 @@ void hidd_blelink_conn_param_update(void)
 {
     if ((wiced_blehidd_get_connection_interval() < hidd_cfg()->ble_scan_cfg.conn_min_interval) ||
             (wiced_blehidd_get_connection_interval() > hidd_cfg()->ble_scan_cfg.conn_max_interval) ||
-            (wiced_blehidd_get_slave_latency() != hidd_cfg()->ble_scan_cfg.conn_latency))
+            (wiced_blehidd_get_peripheral_latency() != hidd_cfg()->ble_scan_cfg.conn_latency))
     {
         WICED_BT_TRACE("\nsend conn param request");
         wiced_bt_l2cap_update_ble_conn_params(blelink.gatts_peer_addr,
@@ -1016,8 +1227,8 @@ void hidd_blelink_aon_action_handler(uint8_t  type)
         blelink.osapi_app_timer_start_instant = ble_aon_data.osapi_app_timer_start_instant;
         blelink.osapi_app_timer_running = ble_aon_data.osapi_app_timer_running;
 
-#ifdef WHITE_LIST_FOR_ADVERTISING
-        blelink.adv_white_list_enabled = ble_aon_data.adv_white_list_enabled;
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+        blelink.adv_filter_accept_list_enabled = ble_aon_data.adv_filter_accept_list_enabled;
 #endif
     }
     else
@@ -1044,8 +1255,8 @@ void hidd_blelink_aon_action_handler(uint8_t  type)
         ble_aon_data.osapi_app_timer_start_instant = blelink.osapi_app_timer_start_instant;
         ble_aon_data.osapi_app_timer_running = blelink.osapi_app_timer_running;
 
-#ifdef WHITE_LIST_FOR_ADVERTISING
-        ble_aon_data.adv_white_list_enabled = blelink.adv_white_list_enabled;
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+        ble_aon_data.adv_filter_accept_list_enabled = blelink.adv_filter_accept_list_enabled;
 #endif
 #endif
     }
@@ -1077,214 +1288,6 @@ void hidd_blelink_discoverabletimerCb(INT32 args, UINT32 overTimeInUs)
     wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
 }
 #endif
-
-#ifdef EASY_PAIR
-/////////////////////////////////////////////////////////////////////////////////
-/// initialize easy pair data
-/////////////////////////////////////////////////////////////////////////////////
-void easyPairInit()
-{
-    blelink.easyPair_deviceIndex = INVALID_INDEX;
-    blelink.easyPair.availableSlots = MAX_DEVICES;
-    memset((void*)&blelink.easyPair.device[0], 0, sizeof(EASY_PAIR_CANDIDATE)*MAX_DEVICES);
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// check if device existed or not
-///
-/// \param  p_scan_result - pointer to scan result data
-///
-/// \return 0 - not existed
-///         1 - existed
-/////////////////////////////////////////////////////////////////////////////////
-uint8_t easyPairCheckExistDevices(wiced_bt_ble_scan_results_t *p_scan_result)
-{
-    uint8_t j, ret = 0;
-
-    for(j = 0; j < MAX_DEVICES; j++)
-    {
-        //check to see if device i is valid
-        if(blelink.easyPair.device[j].valid == VALID_ID)
-        {
-            //if so, check to see if bd addr matches
-            if(!memcmp( p_scan_result->remote_bd_addr , blelink.easyPair.device[j].wd_addr , BD_ADDR_LEN))
-            {
-                //sum the rssi
-                blelink.easyPair.device[j].rssi_total += p_scan_result->rssi;
-                blelink.easyPair.device[j].rssi_count++;
-                return 1;
-            }
-        }
-    }
-
-    return ret;
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// handles the scan results
-///
-/// \param  p_scan_result - pointer to scan result data
-/// \param  p_adv_data - pointer to advertising data
-///
-/// \return 0 - not existed
-///         1 - existed
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_easyPair_scan_result_cback( wiced_bt_ble_scan_results_t *p_scan_result, uint8_t *p_adv_data )
-{
-    uint8_t *p_data;
-    uint8_t length;
-    uint8_t temp;
-    uint8_t manu = 0;
-    uint8_t tx = 0;
-    uint8_t manufacture_id[3] = {0x00, 0x0F, 0x01};
-
-    if ( p_scan_result )
-    {
-        // Advertisement data should have Advertisement type BTM_BLE_ADVERT_TYPE_MANUFACTURER
-        p_data = wiced_bt_ble_check_advertising_data( p_adv_data, BTM_BLE_ADVERT_TYPE_MANUFACTURER, &length );
-
-        //easy pair requires manufacturer id to be 0x00 0x0F 0x01
-        if ( ( p_data == NULL ) || ( length != 3 ) || ( memcmp( p_data, manufacture_id, 3 ) != 0 ) )
-        {
-            // wrong device
-            return;
-        }
-        else
-        {
-            manu = 1;
-        }
-
-        // Advertisement data should have Advertisement type BTM_BLE_ADVERT_TYPE_TX_POWER
-        p_data = wiced_bt_ble_check_advertising_data( p_adv_data, BTM_BLE_ADVERT_TYPE_TX_POWER, &length );
-
-        //easy pair tx power must be 0x00
-        if ( ( p_data == NULL ) || ( length != 1 ) || (p_data[0] != 0 ) )
-        {
-            // wrong device
-            return;
-        }
-        else
-        {
-            tx = 1;
-        }
-
-
-        //if both match proceed check to see if device exists.  if not, add it.
-        if(manu & tx)
-        {
-            //this is a valid candidate
-            //check to see if it is already in the list
-            if(easyPairCheckExistDevices(p_scan_result))
-            {
-                return;
-            }
-
-            //if there is a room, add the device
-            if(blelink.easyPair.availableSlots != 0)
-            {
-                temp = MAX_DEVICES - blelink.easyPair.availableSlots;
-                blelink.easyPair.device[temp].addressType = p_scan_result->ble_addr_type;
-                memcpy(blelink.easyPair.device[temp].wd_addr, p_scan_result->remote_bd_addr, BD_ADDR_LEN);
-                blelink.easyPair.device[temp].rssi_total =  p_scan_result->rssi;
-                blelink.easyPair.device[temp].rssi_count++;
-                blelink.easyPair.device[temp].valid = VALID_ID;
-                blelink.easyPair.availableSlots--;
-            }
-        }
-
-    }
-    else
-    {
-        WICED_BT_TRACE("\nScan completed" );
-        if (blelink.easyPair_deviceIndex != INVALID_INDEX)
-        {
-            // start high duty cycle directed advertising.
-            wiced_bt_start_advertisements(BTM_BLE_ADVERT_DIRECTED_HIGH,
-                                       blelink.easyPair.device[blelink.easyPair_deviceIndex].addressType,
-                                       blelink.easyPair.device[blelink.easyPair_deviceIndex].wd_addr);
-
-            hidd_blelink_set_state(HIDLINK_LE_RECONNECTING);
-
-        }
-        else
-        {
-            hidd_blelink_set_state(HIDLINK_LE_DISCONNECTED);
-        }
-    }
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// timeout hander
-/// this function will determine if there is a valid easy pair
-/// candidate to connect to
-///
-/// \param arg - don't care
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_easyPair_timerCb(uint32_t arg)
-{
-    uint8_t i;
-    uint8_t highest_rssi_index = INVALID_INDEX;
-    int32_t highest_rssi=INVALID_RSSI;
-    int32_t rssi_avg;
-
-    WICED_BT_TRACE("\nhidd_blelink_easyPair_timerCb");
-
-    //stop timer
-    if (wiced_is_timer_in_use(&blelink.easyPair_timer))
-    {
-        wiced_stop_timer(&blelink.easyPair_timer);
-    }
-
-    // find the average rssi of each device and
-    // also find which one has the highest rssi to connect to
-    for(i = 0; i < MAX_DEVICES; i++)
-    {
-        if(blelink.easyPair.device[i].valid == VALID_ID)
-        {
-                rssi_avg = blelink.easyPair.device[i].rssi_total / blelink.easyPair.device[i].rssi_count;
-
-                if( rssi_avg > highest_rssi)
-                {
-                    highest_rssi = rssi_avg;
-                    highest_rssi_index = i;
-                }
-        }
-    }
-
-    //if a valid candid was found, make a connection to valid
-    // device with highest rssi
-    if(highest_rssi_index != INVALID_INDEX)
-    {
-        blelink.easyPair_deviceIndex = highest_rssi_index;
-    }
-
-    //turn off scans
-    wiced_bt_ble_scan( BTM_BLE_SCAN_TYPE_NONE, 0, hidd_blelink_easyPair_scan_result_cback );
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// register for notification of LE Advertising Report Event and
-/// enable scan and start scan timer
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_easyPair_scan(void)
-{
-    wiced_bt_ble_scan(BTM_BLE_SCAN_TYPE_HIGH_DUTY, 0, hidd_blelink_easyPair_scan_result_cback);
-
-    //start easy pair scan timer
-    wiced_start_timer(&blelink.easyPair_timer, EASY_PAIR_SCAN_TIMEOUT *1000); // start 5 seconds timer. timeout in ms
-}
-
-/////////////////////////////////////////////////////////////////////////////////
-/// start easy pair
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_easyPair(uint32_t arg)
-{
-    WICED_BT_TRACE("\nhidd_blelink_easyPair");
-
-    easyPairInit();
-    hidd_blelink_easyPair_scan();
-}
-#endif //#ifdef EASY_PAIR
 
 
 #endif //#ifdef BLE_SUPPORT

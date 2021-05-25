@@ -179,7 +179,7 @@ void hci_hidd_dev_handle_set_local_bda( uint8_t *bda )
     wiced_bt_set_local_bdaddr( bd_addr, BLE_ADDR_PUBLIC );
     WICED_BT_TRACE("\nSet address: %B", bd_addr);
 #ifdef BR_EDR_SUPPORT
-    wiced_bt_l2cap_set_desire_role(HCI_ROLE_SLAVE);
+    wiced_bt_l2cap_set_desire_role(HCI_ROLE_PERIPHERAL);
 #endif
 }
 
@@ -288,7 +288,7 @@ void hci_hidd_handle_command( uint16_t cmd_opcode, uint8_t * p_data, uint32_t da
 
     case HCI_CONTROL_HIDD_COMMAND_ACCEPT_PAIRING:
         WICED_BT_TRACE("pairing");
-        hidd_enter_pairing();
+        hidd_pairing();
         break;
 
     case HCI_CONTROL_HIDD_COMMAND_HID_HOST_ADDR:  // reqesting for host paired host address

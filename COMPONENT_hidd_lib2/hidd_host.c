@@ -138,7 +138,7 @@ static void host_commitTimerCb( uint32_t arg )
 {
     wiced_result_t result;
 
-    wiced_hal_write_nvram( VS_ID_HIDD_HOST_LIST, HIDD_HOST_LIST_SIZE, (uint8_t *) host.list, &result);
+    hidd_write_nvram( VS_ID_HIDD_HOST_LIST, HIDD_HOST_LIST_SIZE, (uint8_t *) host.list, &result);
     // save host info to NVRAM
     if(result)
     {
@@ -546,7 +546,7 @@ void hidd_host_init(void)
     //timer to allow shut down sleep (SDS)
     wiced_init_timer( &host.commitTimer, host_commitTimerCb, 0, WICED_MILLI_SECONDS_TIMER );
 
-    if (wiced_hal_read_nvram(VS_ID_HIDD_HOST_LIST, HIDD_HOST_LIST_SIZE, (uint8_t *)host.list, &result) == HIDD_HOST_LIST_SIZE)
+    if (hidd_read_nvram(VS_ID_HIDD_HOST_LIST, HIDD_HOST_LIST_SIZE, (uint8_t *)host.list, &result) == HIDD_HOST_LIST_SIZE)
     {
         while (index < HIDD_HOST_LIST_MAX)
         {

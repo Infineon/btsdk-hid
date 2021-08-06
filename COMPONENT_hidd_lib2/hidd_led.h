@@ -57,7 +57,7 @@ enum {
 enum {
     LED_OFF,
     LED_ON,
-} led_state_t;
+};
 
 #if LED_SUPPORT
  #if LED_SUPPORT==2

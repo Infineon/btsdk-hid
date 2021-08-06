@@ -49,6 +49,7 @@
 #include "wiced_bt_trace.h"
 #include "wiced_bt_ota_firmware_upgrade.h"
 #include "wiced_bt_stack.h"
+#include "wiced_bt_ble.h"
 #ifdef FASTPAIR_ENABLE
 #include "wiced_bt_gfps.h"
 #endif
@@ -60,22 +61,6 @@ extern UINT32 g_foundation_config_PMUflags;
 
 #define STOP_PAIRING  0
 #define START_PAIRING 1
-
-//#if !is_208xxFamily
-#if 0
- #define SFI_DEEP_SLEEP 1
-#else
- #define SFI_DEEP_SLEEP 0
-#endif
-
-#if SFI_DEEP_SLEEP
-extern uint8_t pmu_attemptSleepState;
-extern void sfi_enter_deep_power_down(void);
-extern void sfi_exit_deep_power_down(BOOL8 forceExitDeepPowerDown);
-extern void sfi_allow_deep_sleep(void);
-#else
- #define sfi_allow_deep_sleep()
-#endif
 
 typedef struct
 {
@@ -125,6 +110,8 @@ uint32_t hidd_chip_id()
 #endif
 }
 
+uint32_t wiced_hal_keyscan_is_any_key_pressed();
+uint32_t wiced_hal_keyscan_events_pending();
 ////////////////////////////////////////////////////////////////////////////////
 /// This function is the timeout handler for allowsleep_timer
 ////////////////////////////////////////////////////////////////////////////////
@@ -157,6 +144,7 @@ void hidd_set_deep_sleep_allowed(uint8_t allowed)
     hidd.allowDeepSleep = allowed;
     if (hidd_is_deep_sleep_timer_running())
     {
+//        WICED_BT_TRACE("\ndeepSleep timer stopped");
         wiced_stop_timer(&hidd.allowDeepSleepTimer);
     }
 }
@@ -243,22 +231,22 @@ static uint32_t HIDD_sleep_handler(wiced_sleep_poll_type_t type )
        {
 // if support epds, we need to determine if it should enter epds or hidoff
   #ifdef SUPPORT_EPDS
-            if (!wiced_hidd_link_is_disconnected() || !hidd.allowHIDOFF)
-            {
-                // enter ePDS
-                g_foundation_config_PMUflags &= ~PMU_CONFIG_FLAGS_ENABLE_SDS;
-            }
-            else
-            {
-                static uint8_t showHIDOFF = 1;
-                if (showHIDOFF)
-                {
-                    showHIDOFF = 0;
-                    WICED_BT_TRACE("\nHIDOFF");
-                }
-                /* allow ePDS */
-                g_foundation_config_PMUflags |= PMU_CONFIG_FLAGS_ENABLE_SDS;
-            }
+           if (!wiced_hidd_link_is_disconnected() || !hidd.allowHIDOFF)
+           {
+               // enter ePDS
+               g_foundation_config_PMUflags &= ~PMU_CONFIG_FLAGS_ENABLE_SDS;
+           }
+           else
+           {
+               static uint8_t showHIDOFF = 1;
+               if (showHIDOFF)
+               {
+                   showHIDOFF = 0;
+                   WICED_BT_TRACE("\nHIDOFF");
+               }
+               /* allow ePDS */
+               g_foundation_config_PMUflags |= PMU_CONFIG_FLAGS_ENABLE_SDS;
+           }
   #endif
   #if is_SDS_capable
             hidd_link_aon_action_handler(HIDD_LINK_SAVE_TO_AON);
@@ -441,6 +429,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                 {
                     WICED_BT_TRACE("\nBONDED successful");
                     hidd_host_setTransport(p_event_data->pairing_complete.bd_addr, BT_TRANSPORT_BR_EDR);
+                    hidd_btlink_connectInd(p_event_data->pairing_complete.bd_addr);
                     hci_control_send_pairing_complete_evt( result, p_event_data->pairing_complete.bd_addr, BT_DEVICE_TYPE_BREDR );
                 }
             }
@@ -527,7 +516,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
             WICED_BT_TRACE("\nBTM_LOCAL_IDENTITY_KEYS_UPDATE_EVT");
             /* save keys to NVRAM */
             p_keys = (uint8_t *)&p_event_data->local_identity_keys_update;
-            wiced_hal_write_nvram ( VS_ID_LOCAL_IDENTITY, sizeof( wiced_bt_local_identity_keys_t ), p_keys ,&result );
+            hidd_write_nvram ( VS_ID_LOCAL_IDENTITY, sizeof( wiced_bt_local_identity_keys_t ), p_keys ,&result );
 #if 0
             WICED_BT_TRACE("\n local keys save to NVRAM result: %d", result);
             TRACE_ARRAY(p_event_data->local_identity_keys_update.local_key_data, BTM_SECURITY_LOCAL_KEY_DATA_LEN);
@@ -538,7 +527,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
             WICED_BT_TRACE("\nBTM_LOCAL_IDENTITY_KEYS_REQUEST_EVT");
             /* read keys from NVRAM */
             p_keys = (uint8_t *)&p_event_data->local_identity_keys_request;
-            wiced_hal_read_nvram( VS_ID_LOCAL_IDENTITY, sizeof(wiced_bt_local_identity_keys_t), p_keys, &result );
+            hidd_read_nvram( VS_ID_LOCAL_IDENTITY, sizeof(wiced_bt_local_identity_keys_t), p_keys, &result );
 #if 0
             WICED_BT_TRACE("\n local keys read from NVRAM result: %d",  result);
             if (!result)
@@ -579,6 +568,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                 }
                 memcpy(bt_hidd_link.encrypt_status.bdAddr, p_event_data->encryption_status.bd_addr, BD_ADDR_LEN);
             }
+
 #endif
             break;
 
@@ -693,8 +683,15 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                 hidd_blelink_set_adv_mode(new_adv_mode);
                 WICED_BT_TRACE("\nAdvertisement State Change: %d -> %d", curr_adv_mode, new_adv_mode);
                 hci_control_send_advertisement_state_evt( new_adv_mode );
-                if (!new_adv_mode)
+                if (new_adv_mode != BTM_BLE_ADVERT_OFF)
                 {
+#ifdef LE_LOCAL_PRIVACY_SUPPORT
+                    WICED_BT_TRACE(" RPA: %B", wiced_btm_get_private_bda());
+#else
+                    wiced_bt_device_address_t  bda;
+                    wiced_bt_dev_read_local_addr(bda);
+                    WICED_BT_TRACE(" BDA: %B", bda);
+#endif
 //                    WICED_BT_TRACE("\nsubstate: %d", blelink.subState);
                     if (blelink.subState==HIDLINK_LE_DISCOVERABLE)
                     {
@@ -709,7 +706,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                 {
                     hidd_blelink_directed_adv_stop();
                 }
-//#if !defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || !is_208xxFamily
+//#if !defined(ENDLESS_LE_ADVERTISING) || !is_208xxFamily
 #if 0
                 // btstack will switch to low adv mode automatically when high adv mode timeout,
                 // for HIDD, we want to stop adv instead
@@ -781,8 +778,6 @@ void hidd_start(wiced_result_t (*p_bt_app_init)(),
     hidd_chip_id();
 #endif
 
-    sfi_allow_deep_sleep();
-
     app_management_cback_ptr = p_bt_management_cback;
     app_init_ptr = p_bt_app_init;
     if (!p_bt_cfg_settings || !p_bt_cfg_buf_pools)
@@ -793,13 +788,16 @@ void hidd_start(wiced_result_t (*p_bt_app_init)(),
     {
         hidd.bt_cfg_ptr = p_bt_cfg_settings;
         wiced_bt_stack_init (hidd_management_cback, p_bt_cfg_settings, p_bt_cfg_buf_pools);
-        WICED_BT_TRACE("\n\n<<%s start>>",p_bt_cfg_settings->device_name);
+        WICED_BT_TRACE("\n\n<< %s >>",p_bt_cfg_settings->device_name);
     }
 
     //timer to allow shut down sleep (SDS)
     wiced_init_timer( &hidd.allowDeepSleepTimer, hidd_allowsleeptimerCb, 0, WICED_MILLI_SECONDS_TIMER );
 
     hci_control_init();
+
+    hidd_nvram_deep_sleep();
+
 }
 
 #ifdef FASTPAIR_ENABLE

@@ -75,6 +75,28 @@ typedef void (app_poll_callback_t)(void);
 
 #define WICED_RESUME_HIDD_LIB_HANDLER WICED_NOT_FOUND
 
+#if is_20735Family
+ #define SFI_DEEP_SLEEP 1
+#else
+ #define SFI_DEEP_SLEEP 0
+#endif
+
+#if SFI_DEEP_SLEEP
+ extern uint8_t pmu_attemptSleepState;
+ extern void sfi_enter_deep_power_down(void);
+ extern void sfi_exit_deep_power_down(BOOL8 forceExitDeepPowerDown);
+ extern void sfi_allow_deep_sleep(void);
+ #define hidd_nvram_allow_deep_sleep() sfi_allow_deep_sleep();
+ #define hidd_nvram_enter_deep_sleep() sfi_enter_deep_power_down()
+ #define hidd_nvram_exit_deep_sleep() sfi_exit_deep_power_down(TRUE)
+ #define hidd_nvram_deep_sleep() {sfi_allow_deep_sleep(); sfi_enter_deep_power_down();}
+#else
+ #define hidd_nvram_allow_deep_sleep()
+ #define hidd_nvram_enter_deep_sleep()
+ #define hidd_nvram_exit_deep_sleep()
+ #define hidd_nvram_deep_sleep()
+#endif
+
 /////////////////////////////////////////////////////////////////////////////////
 // NVRAM ID defines
 /////////////////////////////////////////////////////////////////////////////////
@@ -92,6 +114,43 @@ enum {
 #include "hidd_host.h"
 #include "hidd_audio.h"
 #include "hidd_led.h"
+
+/**
+ * Writes the data to NVRAM,
+ * Application can write up to 255 bytes in one VS  id section
+ *
+ * @param[in] vs_id        : Volatile Section Identifier. Application can use
+ *                           the VS ids from WICED_NVRAM_VSID_START to
+ *                           WICED_NVRAM_VSID_END
+ *
+ * @param[in] data_length  : Length of the data to be written to the NVRAM,
+ *
+ * @param[in] p_data       : Pointer to the data to be written to the NVRAM
+ *
+ * @param[out] p_status    : Pointer to location where status of the call
+ *                           is returned
+ *
+ *
+ * @return  number of bytes written, 0 on error
+ */
+uint16_t hidd_write_nvram( uint16_t vs_id, uint16_t data_length, uint8_t * p_data, wiced_result_t * p_status);
+
+/** Reads the data from NVRAM
+ *
+ * @param[in]  vs_id       : Volatile Section Identifier. Application can use
+ *                           the VS ids from WICED_NVRAM_VSID_START to
+ *                           WICED_NVRAM_VSID_END
+ *
+ * @param[in]  data_length : Length of the data to be read from NVRAM
+ *
+ * @param[out] p_data      : Pointer to the buffer to which data will be copied
+ *
+ * @param[out] p_status    : Pointer to location where status of the call
+ *                           is returned
+ *
+ * @return  the number of bytes read, 0 on failure
+ */
+uint16_t hidd_read_nvram( uint16_t vs_id, uint16_t data_length, uint8_t * p_data, wiced_result_t * p_status);
 
 /////////////////////////////////////////////////////////////////////////////////
 /// register application callback functions

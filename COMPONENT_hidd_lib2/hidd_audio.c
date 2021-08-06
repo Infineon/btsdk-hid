@@ -76,9 +76,6 @@ uint32_t audioDumpIndex = 0;
 #endif
 
 extern void wiced_bt_allowPeripheralLatency(wiced_bool_t allow);
-// deprecated and renamed
-extern void wiced_bt_allowSlaveLatency(wiced_bool_t allow);
-#define wiced_bt_allowPeripheralLatency(x) wiced_bt_allowSlaveLatency(x)
 
 extern int32_t custom_gain_boost;
 extern AdcAudioDrcSettings adc_audioDrcSettings;

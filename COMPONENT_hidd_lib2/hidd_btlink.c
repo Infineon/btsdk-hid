@@ -687,7 +687,7 @@ void hidd_btlink_connectInd(const BD_ADDR host_bd_addr)
         {
             case HIDLINK_CONNECTED:
                 // Cant get a connection in either of these states. Initiate disconnect
-                hidd_btlink_enterDisconnecting();
+                //hidd_btlink_enterDisconnecting();
                 break;
             case HIDLINK_DISCONNECTING:
                 // This may happen legitimately if we initiated a disconnect and immediately
@@ -856,8 +856,9 @@ wiced_bool_t hidd_btlink_virtual_cable_unplug(void)
 
     hidd_btlink_setState(HIDLINK_DISCONNECTED);
 
-    return sentVcUnplug;
+    hidd_nvram_deep_sleep();
 
+    return sentVcUnplug;
 }
 
 
@@ -940,7 +941,7 @@ void hidd_btlink_aon_action_handler(uint8_t  type)
 {
     if (type == HIDD_LINK_RESTORE_FROM_AON)
     {
-        WICED_BT_TRACE("\nWICED_BT_AON_DRIVER_RESTORE");
+//        WICED_BT_TRACE("\nWICED_BT_AON_DRIVER_RESTORE");
 
         bt_hidd_link.resumeState = bthid_aon_data.hidd_btlink_state;
     }
@@ -969,8 +970,8 @@ void hidd_btlink_bthidd_evtHandler(wiced_bt_hidd_cback_event_t  event, uint32_t 
         {
             wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
         }
-#endif
         hidd_btlink_connectInd(p_event_data->host_bdaddr);
+#endif
         hci_control_send_data( HCI_CONTROL_HIDD_EVENT_OPENED, p_event_data->host_bdaddr, BD_ADDR_LEN );
         break;
 

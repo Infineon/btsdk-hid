@@ -40,6 +40,7 @@
 *******************************************************************************/
 #include "wiced_bt_trace.h"
 #include "wiced_hal_batmon.h"
+#include "wiced_hal_mia.h"
 #include "hidd_lib.h"
 
 hidd_link_t link;
@@ -407,6 +408,55 @@ wiced_bool_t hidd_link_is_encrypted()
     return FALSE;
 }
 
+/**
+ * Writes the data to NVRAM,
+ * Application can write up to 255 bytes in one VS  id section
+ *
+ * @param[in] vs_id        : Volatile Section Identifier. Application can use
+ *                           the VS ids from WICED_NVRAM_VSID_START to
+ *                           WICED_NVRAM_VSID_END
+ *
+ * @param[in] data_length  : Length of the data to be written to the NVRAM,
+ *
+ * @param[in] p_data       : Pointer to the data to be written to the NVRAM
+ *
+ * @param[out] p_status    : Pointer to location where status of the call
+ *                           is returned
+ *
+ *
+ * @return  number of bytes written, 0 on error
+ */
+uint16_t hidd_write_nvram( uint16_t vs_id, uint16_t data_length, uint8_t * p_data, wiced_result_t * p_status)
+{
+    uint16_t rtv = wiced_hal_write_nvram(vs_id, data_length, p_data, p_status);
+
+    hidd_nvram_deep_sleep();
+    return rtv;
+}
+
+/** Reads the data from NVRAM
+ *
+ * @param[in]  vs_id       : Volatile Section Identifier. Application can use
+ *                           the VS ids from WICED_NVRAM_VSID_START to
+ *                           WICED_NVRAM_VSID_END
+ *
+ * @param[in]  data_length : Length of the data to be read from NVRAM
+ *
+ * @param[out] p_data      : Pointer to the buffer to which data will be copied
+ *
+ * @param[out] p_status    : Pointer to location where status of the call
+ *                           is returned
+ *
+ * @return  the number of bytes read, 0 on failure
+ */
+uint16_t hidd_read_nvram( uint16_t vs_id, uint16_t data_length, uint8_t * p_data, wiced_result_t * p_status)
+{
+    uint16_t rtv = wiced_hal_read_nvram(vs_id, data_length, p_data, p_status);
+
+    hidd_nvram_deep_sleep();
+    return rtv;
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
 void hidd_link_virtual_cable_unplug(void)
@@ -535,4 +585,7 @@ void hidd_link_init()
     hidd_btlink_init();
     hidd_btlink_determine_next_state();
 #endif
+
+    wiced_hal_mia_enable_mia_interrupt(TRUE);
+    wiced_hal_mia_enable_lhl_interrupt(TRUE);//GPIO interrupt
 }

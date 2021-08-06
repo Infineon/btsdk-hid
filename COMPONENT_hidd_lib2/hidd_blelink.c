@@ -449,7 +449,7 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
         blelink.osapi_app_timer_running = 0;
     }
 
-#if is_SDS_capable && (defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || defined(ALLOW_SDS_IN_DISCOVERABLE))
+ #if is_SDS_capable && (defined(ENDLESS_LE_ADVERTISING) || defined(ALLOW_SDS_IN_DISCOVERABLE))
     if ((HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED == blelink.resumeState) ||
         (HIDLINK_LE_ADVERTISING_IN_uBCS_UNDIRECTED == blelink.resumeState))
     {
@@ -470,7 +470,7 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
                 }
                 else
                 {
- #ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+  #ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
                     //if advertising Filter Accept List is enabled before enter SDS
                     if (hidd_host_isBonded() && blelink.adv_filter_accept_list_enabled)
                     {
@@ -480,7 +480,7 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
                         //update advertising filer policy to use Filter Accept List to filter scan and connect request
                         wiced_btm_ble_update_advertisement_filter_policy(blelink.adv_filter_accept_list_enabled);
                     }
- #endif
+  #endif
                     hidd_blelink_enterDiscoverable(WICED_FALSE);
                 }
             }
@@ -492,7 +492,7 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
         }
     }
     else
-#endif
+ #endif
     {
         //set subState to resumeState
         hidd_blelink_set_state(blelink.resumeState);
@@ -506,11 +506,11 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
             link.callbacks->p_app_poll_user_activities();
         }
 
-#if is_SDS_capable && (defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) || defined(ALLOW_SDS_IN_DISCOVERABLE))
+ #if is_SDS_capable && (defined(ENDLESS_LE_ADVERTISING) || defined(ALLOW_SDS_IN_DISCOVERABLE))
         //if no user activity and not wake up due to application timer timeout. restart adv again
         if ((HIDLINK_LE_DISCONNECTED == blelink.subState) && !blelink.wake_from_SDS_timer_timeout_flag)
         {
- #ifdef ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED
+  #ifdef ENDLESS_LE_ADVERTISING
             //if  it is bonded, start low duty cycle directed advertising again.
             if (hidd_host_isBonded() && (HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED == blelink.resumeState))
             {
@@ -527,14 +527,14 @@ void hidd_blelink_determine_next_state_on_wake_from_SDS(void)
                 hidd_blelink_set_state(HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED);
             }
             else
- #endif
+  #endif
             {
- #ifdef ALLOW_SDS_IN_DISCOVERABLE
+  #ifdef ALLOW_SDS_IN_DISCOVERABLE
                 hidd_blelink_enterDiscoverable(WICED_TRUE);
- #endif
+  #endif
             }
         }
-#endif
+ #endif
     }
     else if ((HIDLINK_LE_CONNECTED == blelink.subState) && !wiced_hal_batmon_is_low_battery_shutdown())
     {
@@ -566,14 +566,13 @@ void hidd_blelink_determine_next_state(void)
         WICED_BT_TRACE("\nwake from shutdown");
 #if !is_208xxFamily
         hidd_blelink_determine_next_state_on_wake_from_SDS();
-        return;
 #endif
     }
     else
     {
         WICED_BT_TRACE("\ncold boot");
+        hidd_blelink_determine_next_state_on_boot();
     }
-    hidd_blelink_determine_next_state_on_boot();
 
     //always reset to 0
     blelink.wake_from_SDS_timer_timeout_flag = 0;
@@ -716,7 +715,7 @@ void hidd_blelink_directed_adv_stop(void)
 {
     WICED_BT_TRACE("\nhidd_blelink_DirectedAdvStop");
 
-//#if defined(ENDLESS_LE_ADVERTISING_WHILE_DISCONNECTED) && is_SDS_capable
+//#if defined(ENDLESS_LE_ADVERTISING) && is_SDS_capable
 #if 0
     hidd_blelink_set_state(HIDLINK_LE_ADVERTISING_IN_uBCS_DIRECTED);
 #else
@@ -1116,6 +1115,8 @@ void hidd_blelink_virtual_cable_unplug(void)
 
     //if reconnect timer is running, stop it
     hidd_link_stop_reconnect_timer();
+
+    hidd_nvram_deep_sleep();
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -1207,7 +1208,7 @@ void hidd_blelink_aon_action_handler(uint8_t  type)
 {
     if (type == HIDD_LINK_RESTORE_FROM_AON)
     {
-        WICED_BT_TRACE("\nWICED_BT_AON_DRIVER_RESTORE");
+//        WICED_BT_TRACE("\nWICED_LE_AON_DRIVER_RESTORE");
 
         blelink.resumeState = ble_aon_data.hidd_blelink_state;
         blelink.gatts_conn_id = ble_aon_data.gatts_conn_id;
@@ -1234,6 +1235,8 @@ void hidd_blelink_aon_action_handler(uint8_t  type)
     else
     {
 #if !defined(CYW20819A1) && !defined(CYW20820A1) /* Slimboot is not supported in 20819A1 */
+//        WICED_BT_TRACE("\nWICED_LE_AON_DRIVER_SAVE");
+
         // save all output GPIO values in the saved cfgs before entering uBCS mode
         wiced_hal_gpio_slimboot_reenforce_outputpin_value();
 
@@ -1255,9 +1258,9 @@ void hidd_blelink_aon_action_handler(uint8_t  type)
         ble_aon_data.osapi_app_timer_start_instant = blelink.osapi_app_timer_start_instant;
         ble_aon_data.osapi_app_timer_running = blelink.osapi_app_timer_running;
 
-#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+ #ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
         ble_aon_data.adv_filter_accept_list_enabled = blelink.adv_filter_accept_list_enabled;
-#endif
+ #endif
 #endif
     }
 }

@@ -53,7 +53,7 @@
 /////////////////////////////////////////////////////////////////////////////////
 
 #define is_208xxFamily ((CHIP==20819) || (CHIP==20820))
-#define is_20739Family ((CHIP==20739) || (CHIP==20719) || (CHIP==20721))
+#define is_20739Family ((CHIP==20739) || (CHIP==20719) || (CHIP==20721) || (CHIP==30739))
 #define is_20735Family ((CHIP==20735) || (CHIP==20835))
 #define is_SDS_capable (is_20735Family || is_20739Family)
 #define is_ePDS_capable is_208xxFamily

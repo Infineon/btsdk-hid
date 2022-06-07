@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -459,7 +459,7 @@ uint8_t hidd_host_getInfo(uint8_t * buf)
 wiced_bool_t hidd_host_getLinkKey(const BD_ADDR bdAddr, wiced_bt_device_link_keys_t * link_key)
 {
     uint8_t index = host_findAddr(bdAddr);
-    if (index != HOST_INFO_NOT_FOUND)
+    if (index < HIDD_HOST_LIST_MAX && (link_key != NULL))
     {
         memcpy(link_key, &host.list[index].link_keys, sizeof(wiced_bt_device_link_keys_t));
         return TRUE;
@@ -615,7 +615,7 @@ wiced_bool_t hidd_host_remove()
     {
         host_del(HOST_INFO_INDEX_TOP);
         host_Update(COMMIT_DELAY);
-        hci_control_send_paired_host_info();
+        hidd_hci_control_send_paired_host_info();
         return TRUE;
     }
     return FALSE;
@@ -713,4 +713,3 @@ wiced_bt_transport_t hidd_host_transport()
 {
     return hidd_is_paired() ? host.list[0].transport : 0;
 }
-

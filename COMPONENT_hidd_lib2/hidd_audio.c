@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -116,12 +116,12 @@ extern uint32_t audio_byte_pool_size;
 extern uint32_t index_in_byte_pool;
 #endif
 
-extern void audio_drc_loop_init(UINT8 pgaGain, UINT32 sampleRate);
+extern void audio_drc_loop_init(UINT8 pgaGain, uint32_t sampleRate);
 extern void adc_assignFilterData(AdcAudioFilterCfg_t * data);
 extern void adc_stopAudio_fix(void);
 
-extern UINT32 appUtils_cpuIntDisable(void);
-extern void   appUtils_cpuIntEnable(UINT32 _newPosture);
+extern uint32_t appUtils_cpuIntDisable(void);
+extern void   appUtils_cpuIntEnable(uint32_t _newPosture);
 
 void micAudio_micAudioCallback(UINT8 *audioData, UINT32 receivedLength, UINT32 adcFIFOStatus);
 

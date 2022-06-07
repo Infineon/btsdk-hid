@@ -33,61 +33,35 @@
 
 /** @file
  *
- * HCI hidd handling routines
+ * GATT callback function and handlers
  *
  */
-#ifndef __BLE_HID_HCI_H__
-#define __BLE_HID_HCI_H__
-
-typedef unsigned char uint8_t;
-typedef unsigned short uint16_t;
-
-#ifdef TESTING_USING_HCI
+#if BTSTACK_VER < 0x03000001
+#if defined(TESTING_USING_HCI)
 
 #include "wiced_bt_dev.h"
 #include "wiced_transport.h"
-#if BTSTACK_VER < 0x03000001
-#include "hidd_hci_v1.h"
-#else
-#include "hidd_hci_v3.h"
+#include "hidd_lib.h"
+
+#ifndef HCI_UART_BAUD_RATE
+ #define HCI_UART_BAUD_RATE  HCI_UART_DEFAULT_BAUD // 3M
 #endif
 
-enum {
-    KEY_IR      = 0xf0,
-    KEY_AUDIO   = 0xf1,
-    KEY_MOTION  = 0xf2,
-    KEY_CONNECT = 0xf3,
+const wiced_transport_cfg_t  transport_cfg =
+{
+    .type = WICED_TRANSPORT_UART,
+    .cfg = {
+        .uart_cfg = {
+            .mode = WICED_TRANSPORT_UART_HCI_MODE,
+            .baud_rate =  HCI_UART_BAUD_RATE
+        }
+    },
+    .rx_buff_pool_cfg = {0, 0},
+    .p_status_handler = hidd_hci_control_transport_status,
+    .p_data_handler = hidd_hci_dev_handle_command,
+    .p_tx_complete_cback = NULL
 };
 
-typedef void (*hidd_app_hci_key_callback_t ) (uint8_t key, wiced_bool_t pressed);
 
-void hidd_hci_control_init();
-void hidd_hci_control_send_pairing_complete_evt( uint8_t result, uint8_t *p_bda, uint8_t type );
-void hidd_hci_control_send_disconnect_evt( uint8_t reason, uint16_t con_handle );
-void hidd_hci_control_send_connect_evt( uint8_t addr_type, BD_ADDR addr, uint16_t con_handle, uint8_t role );
-void hidd_hci_control_send_advertisement_state_evt( uint8_t state );
-void hidd_hci_control_send_paired_host_info();
-void hidd_hci_control_send_state_change( uint8_t transport, uint8_t state );
-void hidd_hci_control_enable_trace();
-void hidd_hci_control_register_key_handler(hidd_app_hci_key_callback_t key_handler);
-void hidd_hci_control_transport_status( wiced_transport_type_t type );
-uint32_t hidd_hci_dev_handle_command( uint8_t * p_data, uint32_t length );
-
- #define hidd_hci_control_send_data( code, buf, len ) wiced_transport_send_data( code, buf, len )
-#else
- #define hidd_hci_control_init()
- #define hidd_hci_control_send_pairing_complete_evt( result, p_bda, type )
- #define hidd_hci_control_send_disconnect_evt( reason, con_handle )
- #define hidd_hci_control_send_connect_evt( addr_type, addr, con_handle, role )
- #define hidd_hci_control_send_advertisement_state_evt( state )
- #define hidd_hci_control_send_paired_host_info()
- #define hidd_hci_control_send_state_change( transport, state )
- #define hidd_hci_control_send_data( code, buf, len )
- #define hidd_hci_control_register_key_handler( handler )
- #ifdef HCI_TRACES_ENABLED
-  void hidd_hci_control_enable_trace();
- #else
-  #define hidd_hci_control_enable_trace()
- #endif
-#endif
-#endif
+#endif // TESTING_USING_HCI
+#endif // #if BTSTACK_VER < 0x03000001

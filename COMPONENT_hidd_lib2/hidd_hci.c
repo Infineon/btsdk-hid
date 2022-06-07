@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -46,7 +46,6 @@
 #include "wiced_bt_l2c.h"
 #include "wiced_platform.h"
 #include "hci_control_api.h"
-#include "wiced_transport.h"
 #if defined(CYW43012C0)
  #include "wiced_hal_watchdog.h"
 #else
@@ -56,13 +55,8 @@
 #if ( defined(CYW20706A2) || defined(CYW20719B1) || defined(CYW20719B0) || defined(CYW20721B1) || defined(CYW20735B0) || defined(CYW43012C0) )
 #include "wiced_bt_app_common.h"
 #endif
-#include "gki_target.h"
 
 #if defined(TESTING_USING_HCI)
-
-#ifndef HCI_UART_BAUD_RATE
- #define HCI_UART_BAUD_RATE  HCI_UART_DEFAULT_BAUD // 3M
-#endif
 
 #define READ_LITTLE_ENDIAN_TO_UINT16(into, m,dl) (into) = ((m)[0] | ((m)[1]<<8)); (m) +=2; (dl)-=2;
 
@@ -77,9 +71,9 @@ typedef struct
 /*
  *  Send advertise state change event to uart
  */
-void hci_control_send_advertisement_state_evt( uint8_t state )
+void hidd_hci_control_send_advertisement_state_evt( uint8_t state )
 {
-    hci_control_send_data( HCI_CONTROL_LE_EVENT_ADVERTISEMENT_STATE, &state, 1 );
+    hidd_hci_control_send_data( HCI_CONTROL_LE_EVENT_ADVERTISEMENT_STATE, &state, 1 );
 }
 #endif
 
@@ -89,7 +83,7 @@ void hci_control_send_advertisement_state_evt( uint8_t state )
 void hci_hidd_hci_trace_cback( wiced_bt_hci_trace_type_t type, uint16_t length, uint8_t * p_data )
 {
     //send the trace
-    wiced_transport_send_hci_trace( NULL, type, length, p_data  );
+    hidd_transport_send_hci_trace( type, p_data, length );
 }
 
 /*
@@ -104,7 +98,7 @@ void hci_hidd_dev_handle_reset_cmd( void )
 /*
  * handle command from UART to configure traces
  */
-void hci_control_handle_trace_enable( uint8_t *p_data )
+void hidd_hci_control_handle_trace_enable( uint8_t *p_data )
 {
     uint8_t hci_trace_enable = *p_data++;
     wiced_debug_uart_types_t route_debug = (wiced_debug_uart_types_t)*p_data;
@@ -143,18 +137,18 @@ void hci_control_handle_trace_enable( uint8_t *p_data )
 /*
  * handle command to send paired host device address
  */
-void hci_control_send_paired_host_info()
+void hidd_hci_control_send_paired_host_info()
 {
     uint8_t   tx_buf[(BD_ADDR_LEN+1)*HIDD_HOST_LIST_MAX+1];
     uint8_t   len = hidd_host_getInfo(tx_buf);
 //    WICED_BT_TRACE("\nSend host info, count = %d", tx_buf[0]);
-    hci_control_send_data( HCI_CONTROL_HIDD_EVENT_HOST_ADDR, tx_buf, len );
+    hidd_hci_control_send_data( HCI_CONTROL_HIDD_EVENT_HOST_ADDR, tx_buf, len );
 }
 
 /*
  * send device state change
  */
-void hci_control_send_state_change(uint8_t transport, uint8_t state)
+void hidd_hci_control_send_state_change(uint8_t transport, uint8_t state)
 {
     uint8_t   tx_buf[3];
 
@@ -162,7 +156,7 @@ void hci_control_send_state_change(uint8_t transport, uint8_t state)
     tx_buf[1] = transport;
     tx_buf[2] = state & HIDLINK_MASK;
 //    WICED_BT_TRACE("\nSend state change %d",state);
-    hci_control_send_data( HCI_CONTROL_HIDD_EVENT_STATE_CHANGE, tx_buf, 3 );
+    hidd_hci_control_send_data( HCI_CONTROL_HIDD_EVENT_STATE_CHANGE, tx_buf, 3 );
 }
 
 /*
@@ -184,7 +178,7 @@ void hci_hidd_dev_handle_set_local_bda( uint8_t *bda )
 }
 
 /* Handle get version command */
-void hci_control_misc_handle_get_version( void )
+void hidd_hci_control_misc_handle_get_version( void )
 {
     uint8_t   tx_buf[15];
     uint8_t   cmd = 0;
@@ -203,19 +197,23 @@ void hci_control_misc_handle_get_version( void )
     /* Send MCU app the supported features */
     tx_buf[cmd++] = HCI_CONTROL_GROUP_HIDD;
 
-    hci_control_send_data( HCI_CONTROL_MISC_EVENT_VERSION, tx_buf, cmd );
+    hidd_hci_control_send_data( HCI_CONTROL_MISC_EVENT_VERSION, tx_buf, cmd );
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// handle key from HCI
 /////////////////////////////////////////////////////////////////////////////////////////////
-void hci_control_key(uint8_t * p_data, uint32_t data_len)
+void hidd_hci_control_key(uint8_t * p_data, uint32_t data_len)
 {
     if (data_len==2)
     {
         if (hidd_hci.registered_app_key_handler)
         {
             hidd_hci.registered_app_key_handler(p_data[0], (wiced_bool_t) p_data[1]);
+        }
+        else
+        {
+            WICED_BT_TRACE("\nFunction not supported");
         }
     }
     else
@@ -238,7 +236,7 @@ void hidd_hci_send_report( uint8_t channel, uint8_t type, uint8_t *p_data, uint1
     //send report only when link is connected
     if(hidd_link_is_connected())
     {
-        if(hidd_cfg()->security_requirement_mask)
+        if(hidd_cfg_sec_mask())
         {
             if (hidd_link_is_encrypted())
             {
@@ -255,7 +253,7 @@ void hidd_hci_send_report( uint8_t channel, uint8_t type, uint8_t *p_data, uint1
         hidd_link_connect();
     }
 
-    if ( OK_to_send && (wiced_bt_buffer_poolutilization (HCI_ACL_POOL_ID) < 80) && (length > 0 ))
+    if ( OK_to_send && hidd_buf_pool_is_sufficient() && (length > 0 ))
     {
         hidd_link_send_data(channel, type, p_data, length);
     }
@@ -278,7 +276,7 @@ void hci_hidd_handle_command( uint16_t cmd_opcode, uint8_t * p_data, uint32_t da
 
     case HCI_CONTROL_COMMAND_TRACE_ENABLE:
         WICED_BT_TRACE("Trace %d %d", *p_data, *(p_data+1));
-        hci_control_handle_trace_enable( p_data );
+        hidd_hci_control_handle_trace_enable( p_data );
         break;
 
     case HCI_CONTROL_COMMAND_SET_LOCAL_BDA:
@@ -293,13 +291,13 @@ void hci_hidd_handle_command( uint16_t cmd_opcode, uint8_t * p_data, uint32_t da
 
     case HCI_CONTROL_HIDD_COMMAND_HID_HOST_ADDR:  // reqesting for host paired host address
         WICED_BT_TRACE("Host info req.");
-        hci_control_send_paired_host_info();
+        hidd_hci_control_send_paired_host_info();
 #ifdef BLE_SUPPORT
-        hci_control_send_state_change(BT_TRANSPORT_LE, blelink.subState);
-        hci_control_send_advertisement_state_evt( hidd_blelink_get_adv_mode() );
+        hidd_hci_control_send_state_change(BT_TRANSPORT_LE, blelink.subState);
+        hidd_hci_control_send_advertisement_state_evt( hidd_blelink_get_adv_mode() );
 #endif
 #ifdef BR_EDR_SUPPORT
-        hci_control_send_state_change(BT_TRANSPORT_BR_EDR, bt_hidd_link.subState);
+        hidd_hci_control_send_state_change(BT_TRANSPORT_BR_EDR, bt_hidd_link.subState);
 #endif
         break;
 
@@ -342,12 +340,12 @@ void hci_hidd_handle_command( uint16_t cmd_opcode, uint8_t * p_data, uint32_t da
 
     case HCI_CONTROL_MISC_COMMAND_GET_VERSION:
         WICED_BT_TRACE("Get Version");
-        hci_control_misc_handle_get_version();
+        hidd_hci_control_misc_handle_get_version();
         break;
 
     case HCI_CONTROL_HIDD_COMMAND_KEY:
         WICED_BT_TRACE("key 0x%x %d",p_data[0], p_data[1]);
-        hci_control_key(p_data, data_len);
+        hidd_hci_control_key(p_data, data_len);
         break;
 
     default:
@@ -356,7 +354,7 @@ void hci_hidd_handle_command( uint16_t cmd_opcode, uint8_t * p_data, uint32_t da
     }
 }
 
-uint32_t hci_hidd_dev_handle_command( uint8_t * p_data, uint32_t length )
+uint32_t hidd_hci_dev_handle_command( uint8_t * p_data, uint32_t length )
 {
     uint16_t opcode;
     uint16_t payload_len;
@@ -388,7 +386,7 @@ uint32_t hci_hidd_dev_handle_command( uint8_t * p_data, uint32_t length )
 /*
  *  transfer connection event to uart
  */
-void hci_control_send_connect_evt( uint8_t addr_type, BD_ADDR addr, uint16_t con_handle, uint8_t role )
+void hidd_hci_control_send_connect_evt( uint8_t addr_type, BD_ADDR addr, uint16_t con_handle, uint8_t role )
 {
     int i;
     uint8_t   tx_buf [30];
@@ -401,13 +399,13 @@ void hci_control_send_connect_evt( uint8_t addr_type, BD_ADDR addr, uint16_t con
     *p++ = ( con_handle >> 8 ) & 0xff;
     *p++ = role;
 
-    hci_control_send_data( HCI_CONTROL_LE_EVENT_CONNECTED, tx_buf, ( int )( p - tx_buf ) );
+    hidd_hci_control_send_data( HCI_CONTROL_LE_EVENT_CONNECTED, tx_buf, ( int )( p - tx_buf ) );
 }
 
 /*
  *  transfer disconnection event to UART
  */
-void hci_control_send_disconnect_evt( uint8_t reason, uint16_t con_handle )
+void hidd_hci_control_send_disconnect_evt( uint8_t reason, uint16_t con_handle )
 {
     uint8_t   tx_buf [3];
     uint8_t   *p = tx_buf;
@@ -416,13 +414,13 @@ void hci_control_send_disconnect_evt( uint8_t reason, uint16_t con_handle )
     *p++ = ( con_handle >> 8 ) & 0xff;
     *p++ = reason;
 
-    hci_control_send_data( HCI_CONTROL_LE_EVENT_DISCONNECTED, tx_buf, ( int )( p - tx_buf ) );
+    hidd_hci_control_send_data( HCI_CONTROL_LE_EVENT_DISCONNECTED, tx_buf, ( int )( p - tx_buf ) );
 }
 
 /*
  * Send notification to the host that pairing has been completed
  */
-void hci_control_send_pairing_complete_evt( uint8_t result, uint8_t *p_bda, uint8_t type )
+void hidd_hci_control_send_pairing_complete_evt( uint8_t result, uint8_t *p_bda, uint8_t type )
 {
     uint8_t tx_buf[12];
     uint8_t *p = tx_buf;
@@ -435,50 +433,35 @@ void hci_control_send_pairing_complete_evt( uint8_t result, uint8_t *p_bda, uint
 
     *p++ = type;
 
-    hci_control_send_data( HCI_CONTROL_EVENT_PAIRING_COMPLETE, tx_buf, ( int ) ( p - tx_buf ) );
+    hidd_hci_control_send_data( HCI_CONTROL_EVENT_PAIRING_COMPLETE, tx_buf, ( int ) ( p - tx_buf ) );
 }
 
 /*
- * hci_control_transport_status
+ * hidd_hci_control_transport_status
  * This callback function is called when the MCU opens the Wiced UART
  */
-void hci_hid_control_transport_status( wiced_transport_type_t type )
+void hidd_hci_control_transport_status( wiced_transport_type_t type )
 {
     WICED_BT_TRACE("\nhci_control_transport_status %x", type );
 
     // Tell Host that App is started
-    hci_control_send_data( HCI_CONTROL_EVENT_DEVICE_STARTED, NULL, 0 );
+    hidd_hci_control_send_data( HCI_CONTROL_EVENT_DEVICE_STARTED, NULL, 0 );
 }
 
-const wiced_transport_cfg_t  transport_cfg =
-{
-    .type = WICED_TRANSPORT_UART,
-    .cfg = {
-        .uart_cfg = {
-            .mode = WICED_TRANSPORT_UART_HCI_MODE,
-            .baud_rate =  HCI_UART_BAUD_RATE
-        }
-    },
-    .rx_buff_pool_cfg = {0, 0},
-    .p_status_handler = hci_hid_control_transport_status,
-    .p_data_handler = hci_hidd_dev_handle_command,
-    .p_tx_complete_cback = NULL
-};
-
-void hci_control_enable_trace()
+void hidd_hci_control_enable_trace()
 {
     /* Register callback for receiving hci traces */
     wiced_bt_dev_register_hci_trace( hci_hidd_hci_trace_cback );
 }
 
-void hci_control_init()
+void hidd_hci_control_init()
 {
     WICED_BT_TRACE("\nTESTING_USING_HCI");
     wiced_transport_init( &transport_cfg );
-    hci_control_enable_trace();
+    hidd_hci_control_enable_trace();
 }
 
-void hci_control_register_key_handler(hidd_app_hci_key_callback_t key_handler)
+void hidd_hci_control_register_key_handler(hidd_app_hci_key_callback_t key_handler)
 {
     hidd_hci.registered_app_key_handler = key_handler;
 }
@@ -496,7 +479,7 @@ void hci_trace_to_puart_cback( wiced_bt_hci_trace_type_t type, uint16_t length, 
     wiced_trace_array(  p_data, length );
 }
 
-void hci_control_enable_trace()
+void hidd_hci_control_enable_trace()
 {
     wiced_bt_dev_register_hci_trace( hci_trace_to_puart_cback );
 }

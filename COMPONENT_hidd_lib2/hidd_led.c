@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -41,9 +41,8 @@
 *******************************************************************************/
 #if LED_SUPPORT
 #include "wiced_bt_trace.h"
-#include "wiced_hal_mia.h"
 #include "wiced_timer.h"
-#include "hidd_led.h"
+#include "hidd_lib.h"
 
 #define BLINK_CODE_SPEED 500
 #define ERROR_CODE_BLINK_BREAK      4000

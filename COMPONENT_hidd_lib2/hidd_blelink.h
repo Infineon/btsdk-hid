@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -44,12 +44,15 @@
 #ifndef __HIDD_BLELINK__
 #define __HIDD_BLELINK__
 
-#include "wiced_hidd_lib.h"
 #include "wiced_bt_dev.h"
 #include "wiced_sleep.h"
 #include "wiced_timer.h"
-#include "emconinfo.h"
 #include "clock_timer.h"
+#if BTSTACK_VER < 0x03000001
+#include "hidd_blelink_v1.h"
+#else
+#include "hidd_blelink_v3.h"
+#endif
 
 #ifdef EASY_PAIR
 #define INVALID_RSSI            -1000
@@ -76,20 +79,6 @@ typedef struct
 } EASY_PAIR_INFO;
 #endif
 
-typedef struct
-{
-    EMCONINFO_DEVINFO   emconinfo;
-    uint8_t   hidd_blelink_state;
-    uint8_t   gatts_peer_addr_type;
-    uint8_t   gatts_peer_addr[BD_ADDR_LEN];
-    uint16_t  gatts_conn_id;
-    uint64_t  osapi_app_timer_start_instant;
-    uint8_t   osapi_app_timer_running;
-#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
-    uint8_t   adv_filter_accept_list_enabled;
-#endif
-} blehid_aon_save_content_t;
-
 enum
 {
     /// do not allow 2nd connection (default)
@@ -113,7 +102,7 @@ enum
 };
 
 typedef void (wiced_ble_hidd_state_change_callback_t)(uint32_t);
-
+typedef void (hidd_blelink_one_param_fp)(uint32_t arg);
 typedef struct _LinkStateObserver
 {
     struct _LinkStateObserver* next;
@@ -121,8 +110,19 @@ typedef struct _LinkStateObserver
     wiced_ble_hidd_state_change_callback_t* callback;
 } LinkStateObserver;
 
-typedef void (hidd_blelink_no_param_fp)(void);
-typedef void (hidd_blelink_one_param_fp)(uint32_t arg);
+typedef struct
+{
+    EMCONINFO_DEVINFO   emconinfo;
+    uint8_t   hidd_blelink_state;
+    uint8_t   gatts_peer_addr_type;
+    uint8_t   gatts_peer_addr[BD_ADDR_LEN];
+    uint16_t  gatts_conn_id;
+    uint64_t  osapi_app_timer_start_instant;
+    uint8_t   osapi_app_timer_running;
+#ifdef FILTER_ACCEPT_LIST_FOR_ADVERTISING
+    uint8_t   adv_filter_accept_list_enabled;
+#endif
+} blehid_aon_save_content_t;
 
 #pragma pack(1)
 typedef struct
@@ -131,14 +131,14 @@ typedef struct
     uint64_t  osapi_app_timer_start_instant;
 
      ///connection idle timer (osapi timer that can be supported in uBCS mode)
-    OSAPI_TIMER conn_idle_timer;
+    hidd_blelink_timer_t conn_idle_timer;
 
     /// observer for state changed
     LinkStateObserver* firstStateObserver;
 
 #ifdef ALLOW_SDS_IN_DISCOVERABLE
      ///DISCOVERABLE timer (osapi timer that can be supported in uBCS mode)
-    OSAPI_TIMER discoverable_timer;
+    hidd_blelink_timer_t discoverable_timer;
 
     /// timer to switch from DISCOVERABLE to HIDLINK_LE_ADVERTISING_IN_uBCS_UNDIRECTED
     wiced_timer_t state_switch_timer;
@@ -218,11 +218,21 @@ typedef struct
 } tBleHidLink;
 #pragma pack()
 
+typedef void (hidd_blelink_no_param_fp)(void);
+
+/*************************************************************************
+* externs
+**************************************************************************/
 extern tBleHidLink blelink;
+extern blehid_aon_save_content_t   ble_aon_data;
 
 /////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_set_adv_mode(wiced_bt_ble_advert_mode_t newMode);
+
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+void hidd_blelink_restart_idle_timer();
 
 /////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
@@ -318,13 +328,6 @@ void hidd_blelink_conn_param_update(void);
 /// handler for LE Connection Update Complete event
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_conn_update_complete(void);
-
-/////////////////////////////////////////////////////////////////////////////////
-/// request assymmetric peripheral latency.
-/// when central doesn't accept peripheral's connection parameter update request,
-/// peripheral can enable assymmetric peripheral latency to lower power consumption
-/////////////////////////////////////////////////////////////////////////////////
-void hidd_blelink_set_peripheral_latency(uint16_t peripheralLatencyinmS);
 
 /////////////////////////////////////////////////////////////////////////////////
 /// set ble HID link connection Idle timer timeout value in seconds (default is 0, i.e. no timeout)

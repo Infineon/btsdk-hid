@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -45,7 +45,12 @@
 #include "wiced_platform.h"
 
 // Use first defined LED for HIDD code indicator
-#define HIDD_LED  WICED_PLATFORM_LED_1
+#ifdef WICED_PLATFORM_LED_1
+ #define HIDD_LED             WICED_PLATFORM_LED_1
+#else
+ #define HIDD_LED             WICED_P26
+#endif
+
 enum {
     HIDD_LED_CODE_MISSING_BT_AND_MEM_POOL_CFG  = 1,
     HIDD_LED_CODE_MISSING_LE_CFG  = 2,

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -133,7 +133,7 @@ enum
     HIDD_LINK_RESTORE_FROM_AON,    /* Restore context from AON to SRAM */
 };
 
-typedef app_poll_callback_t hidd_link_app_poll_callback_t;
+typedef void hidd_link_app_poll_callback_t(void);
 typedef void hidd_link_app_connection_failed_callback_t(void);
 typedef void hidd_link_app_enter_pincode_entry_mode_callback_t(void);
 typedef void hidd_link_app_enter_passcode_entry_mode_callback_t(void);
@@ -266,6 +266,13 @@ void hidd_link_init();
 /// hidd_link_init()
 ///////////////////////////////////////////////////////////////////////////////
 const char * hidd_link_state_str(uint8_t state);
+
+/////////////////////////////////////////////////////////////////////////////////
+/// register application callback functions
+///
+/// \param cb - pointer to application callback functions
+/////////////////////////////////////////////////////////////////////////////////
+void hidd_link_register_callbacks(hidd_link_callback_t *link_cb);
 
 ////////////////////////////////////////////////////////////////////////////////
 // hidd_link_aon_action_handler

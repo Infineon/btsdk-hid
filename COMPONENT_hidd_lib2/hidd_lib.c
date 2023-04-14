@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -35,7 +35,7 @@
 *
 * File Name: hidd_lib.c
 *
-* Abstract: This file implements HID application transport that supports both the Bluetooth(BT) Classic
+* Abstract: This file implements HID application transport that supports both the Bluetooth Classic
 *               and LE
 * Functions:
 *
@@ -178,7 +178,7 @@ void bt_accept_pairing( wiced_bool_t enable )
 void hidd_enter_pairing()
 {
 #ifdef BR_EDR_SUPPORT
-    bt_accept_pairing(START_PAIRING); // start BT pairing
+    bt_accept_pairing(START_PAIRING); // start Bluetooth pairing
 #elif defined(BLE_SUPPORT)
     ble_accept_pairing(START_PAIRING); // start LE pairing
 #endif
@@ -193,9 +193,9 @@ void hidd_pairing()
     }
 
 #ifdef BR_EDR_SUPPORT
-    if (hidd_btlink_is_discoverable()) // if we are in BT discovery state
+    if (hidd_btlink_is_discoverable()) // if we are in Bluetooth discovery state
     {
-        bt_accept_pairing(STOP_PAIRING); // stop BT pairing
+        bt_accept_pairing(STOP_PAIRING); // stop Bluetooth pairing
  #if defined(BLE_SUPPORT) && !defined(PTS)
         ble_accept_pairing(START_PAIRING); // start LE pairing
  #endif
@@ -227,7 +227,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
     uint8_t *p_keys;
     wiced_bt_device_address_t         bda = { 0 };
 
-    WICED_BT_TRACE("\n=== BT stack cback event %d", event);
+    WICED_BT_TRACE("\n=== Bluetooth stack cback event %d", event);
 
     if (hidd.app_management_cback_ptr)
     {
@@ -373,7 +373,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
 
         case BTM_ENCRYPTION_STATUS_EVT:
             WICED_BT_TRACE("\nBTM_ENCRYPTION_STATUS_EVT, result=%d", p_event_data->encryption_status.result);
-            //ble
+            // LE
 #ifdef BLE_SUPPORT
             if (hidd_host_transport() == BT_TRANSPORT_LE)
             {
@@ -551,11 +551,14 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                 }
 #endif
                 // if we are reconnecting and adv stops, we enter disconnected state
-                if (blelink.subState == HIDLINK_LE_RECONNECTING && !new_adv_mode)
+                if (blelink.subState != HIDLINK_LE_CONNECTED && !new_adv_mode)
                 {
                     hidd_blelink_set_state(HIDLINK_LE_DISCONNECTED);
 #ifdef AUTO_RECONNECT
-                    hidd_link_delayed_reconnect(AUTO_RECONNECT_DELAY);
+                    if (blelink.subState == HIDLINK_LE_RECONNECTING)
+                    {
+                        hidd_link_delayed_reconnect(AUTO_RECONNECT_DELAY);
+                    }
 #endif
                 }
             }
@@ -592,7 +595,7 @@ wiced_bt_cfg_settings_t * hidd_cfg()
 ///
 /// \param p_bt_app_init          - pointer to application init function
 ///        p_bt_management_cback  - poniter to application bt_management callback function
-///        p_bt_cfg_settings      - bt configuration setting
+///        p_bt_cfg_settings      - Bluetooth configuration setting
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_start_v(app_start_callback_t * p_bt_app_init,
                 wiced_bt_management_cback_t   * p_bt_management_cback,
@@ -600,7 +603,7 @@ void hidd_start_v(app_start_callback_t * p_bt_app_init,
 {
     if (p_bt_cfg_settings == NULL)
     {
-        WICED_BT_TRACE("\nInvalid BT configuration");
+        WICED_BT_TRACE("\nInvalid Bluetooth configuration");
         return;
     }
 

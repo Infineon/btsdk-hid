@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -552,7 +552,7 @@ void hidd_btlink_enterReconnecting(void)
     bt_hidd_link.reconnectHostIndex = 0;
     bt_hidd_link.reconnectRetryCount = 0;
 
-// Need to work on 20735 to access BTM_WritePageTimeout in firmware
+// Need to work on 20835 to access BTM_WritePageTimeout in firmware
 #if is_20819Family
     // Update page timeout as we don't know what it is set to
     if (BTM_WritePageTimeout(wiced_bt_hidlinkcfg.reconnectPageTimeout))

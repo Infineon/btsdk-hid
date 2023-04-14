@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -34,7 +34,7 @@
 *
 * File Name: hidd_blelink.c
 *
-* Abstract: This file implements the BLE HID application transport
+* Abstract: This file implements the LE HID application transport
 *
 * Functions:
 *
@@ -272,7 +272,7 @@ void hidd_blelink_easyPair(uint32_t arg)
 #endif //#ifdef EASY_PAIR
 
 /////////////////////////////////////////////////////////////////////////////////////////////
-/// ble hid link init
+/// LE hid link init
 /////////////////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_init()
 {
@@ -385,7 +385,7 @@ void hidd_blelink_determine_next_state_on_boot(void)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
-/// ble hidd link get current advertizing mode
+/// LE hidd link get current advertizing mode
 /////////////////////////////////////////////////////////////////////////////////////////////
 wiced_bt_ble_advert_mode_t hidd_blelink_get_adv_mode(void)
 {
@@ -942,7 +942,7 @@ void hidd_blelink_virtual_cable_unplug(void)
 }
 
 /////////////////////////////////////////////////////////////////////////////////
-/// set ble HID link connection Idle timer timeout value in seconds (default is 0, i.e. no timeout)
+/// set LE HID link connection Idle timer timeout value in seconds (default is 0, i.e. no timeout)
 /////////////////////////////////////////////////////////////////////////////////
 void hidd_blelink_set_connection_Idle_timeout_value(uint16_t value)
 {

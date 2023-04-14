@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -34,7 +34,7 @@
 *
 * File Name: hidd_blelink.h
 *
-* Abstract: This file implements the BLE HID application transport
+* Abstract: This file implements the LE HID application transport
 *
 * Functions:
 *

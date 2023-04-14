@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -60,13 +60,13 @@ void hidd_link_aon_action_handler(uint8_t  type)
 
 #ifdef SUPPORT_CODE_ENTRY
 ////////////////////////////////////////////////////////////////////////////////
-/// Provide pin code to the BT transport. This should only be done in
+/// Provide pin code to the Bluetooth transport. This should only be done in
 /// response to a pin code request from the transport. This method
 /// unconditionally flags that we are not requesting a pin code from the
 /// application. Further action depends on the state and is as follows:
 /// - DISCOVERABLE: if we have a (partial) connection, we assume that this
 ///      message is in response to a pin code request from us and pass
-///      this response to the BT stack. Otherwise it is discarded.
+///      this response to the Bluetooth stack. Otherwise it is discarded.
 /// - CONNECTED: Same as DISCOVERABLE
 /// - All other state: Ignored.
 ////////////////////////////////////////////////////////////////////////////////
@@ -89,7 +89,7 @@ void hidd_link_pinCode(uint8_t pinCodeSize, uint8_t *pinCodeBuffer)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// This method handles a pin code request from the BT core.
+/// This method handles a pin code request from the Bluetooth core.
 ///  - INITIALIZED: Impossible. Ignore.
 ///  - DISCONNECTED: Impossible. Ignore.
 ///  - DISCOVERABLE: Acceptable to get a pin code request here.
@@ -101,7 +101,7 @@ void hidd_link_pinCode(uint8_t pinCodeSize, uint8_t *pinCodeBuffer)
 ///           may be open without the interrupt channel being open.
 ///  - CONNECTABLE: Implies other side lost the link key or the other side
 ///           is acting under false pretences.
-///           Tell BT conn to disconnect but stay in this state.
+///           Tell Bluetooth conn to disconnect but stay in this state.
 ///  - CONNECTED: We can get a pin code request in CONNECTED state as some
 ///           stacks open the interrupt channel before pairing.
 ///           If we are auto-pairing (enabled via auto-pairing HID report)
@@ -111,7 +111,7 @@ void hidd_link_pinCode(uint8_t pinCodeSize, uint8_t *pinCodeBuffer)
 ///  - DISCONNECTING: We are already disconnecting. Ignore.
 ///  - RECONNECTING: Implies other side lost the link key or the other side
 ///           is acting under false pretences.
-///           Tell BT conn to disconnect but stay in this state.
+///           Tell Bluetooth conn to disconnect but stay in this state.
 /// \param p_event_data remote device information.
 ////////////////////////////////////////////////////////////////////////////////
 void hidd_link_pinCodeRequest(wiced_bt_dev_name_and_class_t *p_event_data)
@@ -171,7 +171,7 @@ void hidd_link_pinCodeRequest(wiced_bt_dev_name_and_class_t *p_event_data)
 /// application. Further action depends on the state and is as follows:
 ///  - DISCOVERABLE: if we have a (partial) connection, we assume that this
 ///      message is in response to a pass code request from us and pass
-///      this response to the BT stack. Otherwise it is discarded.
+///      this response to the Bluetooth stack. Otherwise it is discarded.
 /// - All other state: Ignored.
 /// NOTE: pinCodeBuffer is expected to be a null terminated string representation
 ///       of an unsigned interger between 0 and 999999, both inclusive.
@@ -319,7 +319,7 @@ void hidd_link_connect()
 #ifdef BLE_SUPPORT
     if (hidd_host_transport()==BT_TRANSPORT_LE)
     {
-        // for BLE there is no channel, skip p_data[0]
+        // for LE there is no channel, skip p_data[0]
         hidd_blelink_connect();
     }
 #endif
@@ -339,7 +339,7 @@ void hidd_link_disconnect()
 #ifdef BLE_SUPPORT
     if (hidd_host_transport()==BT_TRANSPORT_LE)
     {
-        // for BLE there is no channel, skip p_data[0]
+        // for LE there is no channel, skip p_data[0]
         hidd_blelink_disconnect();
     }
 #endif
@@ -441,7 +441,7 @@ void hidd_link_virtual_cable_unplug(void)
  *  @param[in]      len         : Report length
  *
  *  @return         for BR/EDR status code (see #wiced_bt_hidd_status_e)
- *                  for BLE sttatus code (see #wiced_bt_gatt_status_e)
+ *                  for LE sttatus code (see #wiced_bt_gatt_status_e)
  */
 wiced_bt_hidd_status_t hidd_link_send_data(uint8_t ch, uint8_t type, uint8_t *ptr, uint16_t len)
 {
@@ -453,7 +453,7 @@ wiced_bt_hidd_status_t hidd_link_send_data(uint8_t ch, uint8_t type, uint8_t *pt
         if (hidd_gatt_set_data(ptr, len))
         {
             // Send the report
-            return hidd_blelink_send_report(id, type, ++ptr, --len); // pointer and length don't include report ID for BLE
+            return hidd_blelink_send_report(id, type, ++ptr, --len); // pointer and length don't include report ID for LE
         }
         break;
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -296,10 +296,12 @@ void hidd_led_init(uint8_t count, const wiced_platform_led_config_t * cfg)
         for (int idx=0;idx<count;idx++)
         {
             wiced_init_timer( &led[idx].blinking_timer, LED_blink_handler, idx, WICED_MILLI_SECONDS_TIMER );
-//          WICED_BT_TRACE("\nLED=%d, pin=%d cfg:%04x, default:%d", idx, *cfg[idx].gpio, cfg[idx].config, cfg[idx].default_state);
-            // pin initialization done in platform.c
-//          wiced_hal_gpio_configure_pin(*cfg[idx].gpio, cfg[idx].config, cfg[idx].default_state);
-            LED_set(idx, LED_OFF); // default to turn LED off
+            if (wiced_hal_mia_is_reset_reason_por())
+            {
+                // pin initialization is done in platform.c
+//                wiced_hal_gpio_configure_pin(*cfg[idx].gpio, cfg[idx].config, cfg[idx].default_state);
+                LED_set(idx, LED_OFF); // default to turn LED off
+            }
             wiced_hal_gpio_slimboot_reenforce_cfg(*led_cfg.platform[idx].gpio, GPIO_OUTPUT_ENABLE);
         }
 

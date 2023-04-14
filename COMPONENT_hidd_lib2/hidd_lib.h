@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -53,10 +53,10 @@
 
 #define is_20819Family ((CHIP==20819) || (CHIP==20820))
 #define is_20739Family ((CHIP==20739) || (CHIP==20719) || (CHIP==20721) || (CHIP==30739))
-#define is_20735Family ((CHIP==20735) || (CHIP==20835))
-#define is_SDS_capable (is_20735Family || is_20739Family)
+#define is_20835Family ((CHIP==20835))
+#define is_SDS_capable (is_20835Family || is_20739Family)
 #define is_ePDS_capable is_20819Family
-#define is_newFamily (is_20735Family || is_20739Family || is_20819Family)
+#define is_newFamily (is_20835Family || is_20739Family || is_20819Family)
 
 #define BT_TRANSPORT_DUAL (BT_TRANSPORT_BR_EDR | BT_TRANSPORT_LE)
 
@@ -72,7 +72,7 @@
 
 #define WICED_RESUME_HIDD_LIB_HANDLER WICED_NOT_FOUND
 
-#if is_20735Family
+#if is_20835Family
  #define SFI_DEEP_SLEEP 1
 #else
  #define SFI_DEEP_SLEEP 0

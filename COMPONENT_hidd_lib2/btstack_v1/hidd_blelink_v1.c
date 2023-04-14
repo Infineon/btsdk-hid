@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -34,7 +34,7 @@
 *
 * File Name: hidd_blelink.c
 *
-* Abstract: This file implements the BLE HID application transport
+* Abstract: This file implements the LE HID application transport
 *
 * Functions:
 *
@@ -51,7 +51,7 @@ PLACE_DATA_IN_RETENTION_RAM blehid_aon_save_content_t   ble_aon_data;
 void hidd_blelink_pr_link_key(wiced_bt_device_link_keys_t * p_link_keys)
 {
     WICED_BT_TRACE("\nmask           :  x%02X", p_link_keys->key_data.le_keys_available_mask);
-    WICED_BT_TRACE("\nBLE AddrType   :  %d", p_link_keys->key_data.ble_addr_type);
+    WICED_BT_TRACE("\nLE AddrType   :  %d", p_link_keys->key_data.ble_addr_type);
     WICED_BT_TRACE("\nStatic AddrType:  %d", p_link_keys->key_data.static_addr_type);
     WICED_BT_TRACE("\nStatic Addr    :  %B", p_link_keys->key_data.static_addr);
     STRACE_ARRAY  ("\n  irk: ", &(p_link_keys->key_data.le_keys.irk), LINK_KEY_LEN);

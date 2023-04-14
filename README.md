@@ -2,7 +2,16 @@
 
 ### Overview
 
-This repo contains HID libraries used in BTSDK 2.0 and higher. The libraries included in this repo are:
+This repo contains HID libraries. The libraries included in this repo are:
 
-* hidd_lib2<br/>
-    * Bluetooth&#174; Low Energy HID Device library<br/>
+
+COMPONENT_hidd_lib2<br/>
+* Bluetooth&#174; Low Energy HID Device library for legacy devices that uses btstack version 1<br/>
+
+COMPONENT_hidd_lib<br/>
+* Bluetooth&#174; Low Energy HID Device library for devices that uses btstack version 3<br/>
+* Uses COMPONENT_gatt_utils_lib
+
+COMPONENT_hidh_lib<br/>
+* Bluetooth&#174; Low Energy HID Host library for devices that uses btstack version 3<br/>
+* Uses COMPONENT_gatt_utils_lib

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -138,7 +138,7 @@ static uint32_t HIDD_sleep_handler( wiced_sleep_poll_type_t type )
         ret = hidd_sleep.p_app_sleep_handler ? hidd_sleep.p_app_sleep_handler(type) : WICED_SLEEP_MAX_TIME_TO_SLEEP;
 
  #if SFI_DEEP_SLEEP
-        // In 20735, sfi CS may contains glitch that wakes up Flash result in high current. Apply workaround to put sfi into powerdown
+        // In 20835, sfi CS may contains glitch that wakes up Flash result in high current. Apply workaround to put sfi into powerdown
         if ((ret == WICED_SLEEP_MAX_TIME_TO_SLEEP) && ( pmu_attemptSleepState == 5 ))
         {
             sfi_exit_deep_power_down(FALSE);
@@ -165,7 +165,7 @@ static uint32_t HIDD_sleep_handler( wiced_sleep_poll_type_t type )
   #ifdef BLE_SUPPORT
                  || (blelink.second_conn_state == BLEHIDLINK_2ND_CONNECTION_PENDING)
   #endif
-  #if defined(BR_EDR_SUPPORT) && is_20735Family
+  #if defined(BR_EDR_SUPPORT) && is_20835Family
                  //due to sniff+SDS is not supported in core FW, at this time, only allow SDS when disconnected
                  || (bt_hidd_link.subState != HIDLINK_DISCONNECTED)
   #endif

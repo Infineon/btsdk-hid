@@ -59,12 +59,12 @@ static struct {
     uint8_t       blinking_count;
     uint8_t       blinking_repeat_code;
 
-} led[WICED_PLATFORM_LED_MAX]={};
+} led[WICED_PLATFORM_LED_MAX]={0};
 
 static struct {
     const wiced_platform_led_config_t * platform;
     uint8_t       count;
-} led_cfg = {};
+} led_cfg = {0};
 
 #define led_initialized()  (led_cfg.count)
 #define VALID_LED_IDX(idx) (led_initialized() && idx < led_cfg.count)

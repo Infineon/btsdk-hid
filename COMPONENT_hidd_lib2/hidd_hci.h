@@ -42,6 +42,8 @@
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
 
+#define DEVICE_CAPABILITY_LEN 3
+
 #ifdef TESTING_USING_HCI
 
 #include "wiced_bt_dev.h"
@@ -62,6 +64,7 @@ enum {
 typedef void (*hidd_app_hci_key_callback_t ) (uint8_t key, wiced_bool_t pressed);
 
 void hidd_hci_control_init();
+void hidd_hci_control_set_capability(char audio, char mouse, char ir);
 void hidd_hci_control_send_pairing_complete_evt( uint8_t result, uint8_t *p_bda, uint8_t type );
 void hidd_hci_control_send_disconnect_evt( uint8_t reason, uint16_t con_handle );
 void hidd_hci_control_send_connect_evt( uint8_t addr_type, BD_ADDR addr, uint16_t con_handle, uint8_t role );
@@ -76,6 +79,7 @@ uint32_t hidd_hci_dev_handle_command( uint8_t * p_data, uint32_t length );
  #define hidd_hci_control_send_data( code, buf, len ) wiced_transport_send_data( code, buf, len )
 #else
  #define hidd_hci_control_init()
+ #define hidd_hci_control_set_capability(a,m,i)
  #define hidd_hci_control_send_pairing_complete_evt( result, p_bda, type )
  #define hidd_hci_control_send_disconnect_evt( reason, con_handle )
  #define hidd_hci_control_send_connect_evt( addr_type, addr, con_handle, role )

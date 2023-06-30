@@ -98,7 +98,7 @@ tBtHidLinkCfg wiced_bt_hidlinkcfg =
      4
 };
 
-tBtHidLink bt_hidd_link = {};
+tBtHidLink bt_hidd_link = {0};
 
 //wiced_bool_t hidd_btlink_firstConnAfterDiscoverable = WICED_FALSE;
 //wiced_bool_t hidd_btlink_discoverableStateWhileReconnect = WICED_FALSE;

@@ -60,12 +60,24 @@
 
 #define READ_LITTLE_ENDIAN_TO_UINT16(into, m,dl) (into) = ((m)[0] | ((m)[1]<<8)); (m) +=2; (dl)-=2;
 
+////////////////////////////////////////////////////////////////////////////////
+// var
+////////////////////////////////////////////////////////////////////////////////
+uint8_t dev_capabilities[DEVICE_CAPABILITY_LEN]={0,0,0};
+
 typedef struct
 {
     // application key handler pointer
     hidd_app_hci_key_callback_t registered_app_key_handler;
-} thidd_hci; thidd_hci hidd_hci = {};
+} thidd_hci; thidd_hci hidd_hci = {0};
 
+
+void hidd_hci_control_set_capability(char audio, char mouse, char ir)
+{
+    dev_capabilities[0] = audio;
+    dev_capabilities[1] = mouse;
+    dev_capabilities[2] = ir;
+}
 
 #ifdef BLE_SUPPORT
 /*
@@ -198,6 +210,8 @@ void hidd_hci_control_misc_handle_get_version( void )
     tx_buf[cmd++] = HCI_CONTROL_GROUP_HIDD;
 
     hidd_hci_control_send_data( HCI_CONTROL_MISC_EVENT_VERSION, tx_buf, cmd );
+
+    hidd_hci_control_send_data( HCI_CONTROL_HIDD_EVENT_CAPABILITY, dev_capabilities, DEVICE_CAPABILITY_LEN );
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////

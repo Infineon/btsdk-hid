@@ -57,7 +57,7 @@
 #define ATV_VERSION_RESP_LEN 9
 #ifdef ANDROID_AUDIO_1_0
  #define ATV_VERSION_MAJOR   version_str[0]
- static uint8_t version_str[ATV_VERSION_STR_LEN]={};
+ static uint8_t version_str[ATV_VERSION_STR_LEN]={0};
 #endif
 
 /*

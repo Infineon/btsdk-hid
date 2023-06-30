@@ -49,7 +49,7 @@
 #include "wiced_memory.h"
 #include "hidd_lib.h"
 
-tBleHidLink blelink = {};
+tBleHidLink blelink = {0};
 
 #ifdef FATORY_TEST_SUPPORT
 uint8_t factory_mode = 0;

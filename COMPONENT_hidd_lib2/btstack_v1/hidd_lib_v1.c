@@ -46,7 +46,7 @@
 #include "wiced_hal_mia.h"
 #include "wiced_bt_trace.h"
 
-hidd_lib_t hidd = {};
+hidd_lib_t hidd = {0};
 
 ////////////////////////////////////////////////////////////////////////////////
 /// is_cfg_buf_pools_valid()

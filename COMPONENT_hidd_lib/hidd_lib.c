@@ -66,7 +66,7 @@ static struct
     hidd_cfg_t * cfg;
     uint16_t     conn_id;
 
-} hidd = {};
+} hidd = {0};
 
 /******************************************************************************************
  * public functions

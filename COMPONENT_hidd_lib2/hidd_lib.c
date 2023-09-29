@@ -312,6 +312,7 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
                 }
             }
 #endif
+            hidd_hci_control_send_paired_host_info();
             break;
 
         case BTM_PAIRED_DEVICE_LINK_KEYS_UPDATE_EVT:
@@ -576,6 +577,13 @@ wiced_result_t hidd_management_cback(wiced_bt_management_evt_t event, wiced_bt_m
             }
             break;
 #endif
+        case BTM_BLE_PHY_UPDATE_EVT:
+            WICED_BT_TRACE("\nBTM_BLE_PHY_UPDATE_EVT. status:%d, tx_phy:%d, rx_phy:%d",
+                            p_event_data->ble_phy_update_event.status,
+                            p_event_data->ble_phy_update_event.tx_phy,
+                            p_event_data->ble_phy_update_event.rx_phy);
+            break;
+
         default:
             WICED_BT_TRACE("\nUnhandled management_cback event: %d!!!", event );
             break;

@@ -503,6 +503,9 @@ void hidd_blelink_disconnected(void)
     wiced_blehidd_set_link_encrypted_flag(WICED_FALSE);
 
     hidd_blelink_enterDisconnected();
+
+    //clear connection_param_updated flag when the ble connection is disconnected
+    blelink.connection_param_updated = WICED_FALSE;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -1003,14 +1006,16 @@ void hidd_blelink_conn_update_complete(void)
         (wiced_blehidd_get_connection_interval() > hidd_cfg_p_scan()->conn_max_interval) ||
         (wiced_blehidd_get_peripheral_latency() != hidd_cfg_p_scan()->conn_latency))
     {
-#ifdef ASSYM_PERIPHERAL_LATENCY
+ #ifdef ASSYM_PERIPHERAL_LATENCY
         //if actual peripheral latency is smaller than desired peripheral latency, set asymmetric peripheral latency in the peripheral side
-        if (wiced_blehidd_get_connection_interval()*(wiced_blehidd_get_peripheral_latency() + 1) <
-                 hidd_cfg_p_scan()->conn_min_interval * ( hidd_cfg_p_scan()->conn_latency + 1))
-            hidd_blelink_set_peripheral_latency( hidd_cfg_p_scan()->conn_min_interval* hidd_cfg_p_scan()->conn_latency+1)*5/4);
-#else
+        if ( (wiced_blehidd_get_connection_interval() * (wiced_blehidd_get_peripheral_latency() + 1)) <
+             (hidd_cfg_p_scan()->conn_min_interval * ( hidd_cfg_p_scan()->conn_latency + 1)) )
+        {
+            hidd_blelink_set_peripheral_latency( hidd_cfg_p_scan()->conn_min_interval * (hidd_cfg_p_scan()->conn_latency+1) * 5 / 4 );
+        }
+ #else
         hidd_blelink_conn_param_update();
-#endif
+ #endif
         blelink.connection_param_updated = WICED_TRUE;
     }
 #endif
@@ -1127,6 +1132,5 @@ void hidd_blelink_discoverabletimerCb(int32_t args, uint32_t overTimeInUs)
     wiced_bt_start_advertisements(BTM_BLE_ADVERT_OFF, 0, NULL);
 }
 #endif
-
 
 #endif //#ifdef BLE_SUPPORT

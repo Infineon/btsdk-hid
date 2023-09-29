@@ -211,6 +211,12 @@ static uint32_t HIDD_sleep_handler( wiced_sleep_poll_type_t type )
         break;
     }
 #endif // SLEEP_ALLOWED
+
+    if(ret == WICED_SLEEP_ALLOWED_WITH_SHUTDOWN)
+    {
+        WICED_BT_TRACE("\nSDS");
+    }
+
     return ret;
 }
 

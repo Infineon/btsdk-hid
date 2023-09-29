@@ -39,13 +39,17 @@
  */
 
 #include "wiced_bt_trace.h"
-#include "gatt_utils_lib.h"
 #include "hidd_lib.h"
+
+#if CHIP!=20829 && defined WICED_BT_TRACE_ENABLE
+# undef WICED_BT_TRACE
+# define WICED_BT_TRACE(format,...)   wiced_printf(NULL, 0, (format"\n"), ##__VA_ARGS__)
+#endif
 
 #if HIDD_TRACE
 # define HIDD_LIB_TRACE     WICED_BT_TRACE
-# if LIB_TRACE>1
-#  define HIDD_LIB_TRACE2   WICED_BT_TRACE
+# if HIDD_TRACE>1
+#  define HIDD_LIB_TRACE2   HIDD_LIB_TRACE
 # else
 #  define HIDD_LIB_TRACE2(...)
 # endif
@@ -71,6 +75,30 @@ static struct
 /******************************************************************************************
  * public functions
  ******************************************************************************************/
+
+/**
+ * Get attribute data from the look up table
+ */
+const gatt_db_lookup_table_t * hidd_get_attribute(uint16_t handle)
+{
+    gatt_db_lookup_table_t * p_attribute = hidd.cfg->gatt_lookup_table;
+    uint16_t limit = hidd.cfg->gatt_lookup_table_size ? hidd.cfg->gatt_lookup_table_size : app_gatt_db_ext_attr_tbl_size; // for backward comptiability, if gatt_lookup_table_size is not assigned, use BT configurator generated code value.
+
+    if (handle)
+    {
+        while(limit--)
+        {
+            if(p_attribute->handle == handle)
+            {
+                return p_attribute;
+            }
+
+            p_attribute++;
+        }
+        WICED_BT_TRACE("Requested attribute 0x%04x not found!!!", handle);
+    }
+    return NULL;
+}
 
 /**
  * Send HIDD input report by passing the report pointer and report length.
@@ -104,7 +132,7 @@ wiced_bt_gatt_status_t hidd_send_data(uint8_t rpt_id, uint8_t rpt_type, uint8_t 
             uint16_t handle = rpt->handle_val;
 
             // we found the handle value attribute
-            const gatt_db_lookup_table_t * p_attribute = wiced_bt_util_get_attribute(hidd.cfg->gatt_lookup_table, handle);
+            const gatt_db_lookup_table_t * p_attribute = hidd_get_attribute(handle);
 
             if (p_attribute != NULL)
             {
@@ -117,14 +145,14 @@ wiced_bt_gatt_status_t hidd_send_data(uint8_t rpt_id, uint8_t rpt_type, uint8_t 
                     memcpy(p_attribute->p_data, p_data, len);
                 }
 
-                HIDD_LIB_TRACE("send notification, conn:0x%04x handle:0x%04x len:%d", link_conn_id(), handle, len);
-                return wiced_bt_gatt_server_send_notification( hidd.conn_id, handle, len, p_attribute->p_data, NULL );
+                HIDD_LIB_TRACE("send notification, conn:0x%04x handle:0x%04x len:%d", hidd.conn_id, handle, len);
+                return wiced_bt_gatt_send_notification( hidd.conn_id, handle, len, p_attribute->p_data );
             }
             return WICED_BT_GATT_ATTRIBUTE_NOT_FOUND;
         }
         rpt++;
     }
-    HIDD_LIB_TRACE("Error! Cannot find rpt_id:%d rpt_type:%d in rpt_table", rpt_id, rpt_type);
+    WICED_BT_TRACE("Error! Cannot find rpt_id:%d rpt_type:%d in rpt_table", rpt_id, rpt_type);
     return WICED_BT_GATT_INVALID_CFG;
 }
 
@@ -138,16 +166,10 @@ wiced_bt_gatt_status_t hidd_gatt_write_handler( uint16_t conn_id, wiced_bt_gatt_
     // Check if the handle is for CCCD
     for (int i = 0; i < hidd.cfg->rpt_table_size; i++)
     {
-        if (handle == hidd.cfg->rpt_table[i].handle_cccd)
-        {
-            if (hidd.cfg->cccd_cb)
-            {
-                return hidd.cfg->cccd_cb( conn_id, p_wr_data );
-            }
-        }
         // Check if this is writing to HID report
-        else if (p_wr_data->handle == hidd.cfg->rpt_table[i].handle_val)
+        if (p_wr_data->handle == hidd.cfg->rpt_table[i].handle_val)
         {
+            HIDD_LIB_TRACE("writing HID report handle 0x%04x", handle);
             if (hidd.cfg->rpt_cb)
             {
                 return hidd.cfg->rpt_cb( hidd.cfg->rpt_table[i].rpt_id, hidd.cfg->rpt_table[i].rpt_type, conn_id, p_wr_data );
@@ -155,6 +177,7 @@ wiced_bt_gatt_status_t hidd_gatt_write_handler( uint16_t conn_id, wiced_bt_gatt_
         }
     }
 
+    UNUSED_VARIABLE(handle);
     return WICED_BT_GATT_ATTRIBUTE_NOT_FOUND;
 }
 
@@ -169,7 +192,7 @@ void hidd_get_cccd_flags(uint16_t * nflags, uint16_t * iflags)
 
     for (int i = 0; i < hidd.cfg->rpt_table_size; i++)
     {
-        p_attribute = wiced_bt_util_get_attribute(hidd.cfg->gatt_lookup_table, hidd.cfg->rpt_table[i].handle_cccd);
+        p_attribute = hidd_get_attribute(hidd.cfg->rpt_table[i].handle_cccd);
 
         if( p_attribute )
         {
@@ -180,6 +203,7 @@ void hidd_get_cccd_flags(uint16_t * nflags, uint16_t * iflags)
         }
         bit <<= 1;
     }
+    HIDD_LIB_TRACE("hidd_get_cccd_flags got 0x%04x, 0x%04x", *nflags, *iflags);
 }
 
 /**
@@ -190,15 +214,16 @@ void hidd_set_cccd_flags(uint16_t notif_flags, uint16_t indicate_flags)
     const gatt_db_lookup_table_t * p_attribute;
     uint16_t bit = 1;
 
+    HIDD_LIB_TRACE("hidd_set_cccd_flags to 0x%04x, 0x%04x", notif_flags, indicate_flags);
     for (int i = 0; i < hidd.cfg->rpt_table_size; i++)
     {
-        p_attribute = wiced_bt_util_get_attribute(hidd.cfg->gatt_lookup_table, hidd.cfg->rpt_table[i].handle_cccd);
+        p_attribute = hidd_get_attribute(hidd.cfg->rpt_table[i].handle_cccd);
 
         if( p_attribute )
         {
             *(uint16_t *) p_attribute->p_data = ((notif_flags & bit) ? GATT_CLIENT_CONFIG_NOTIFICATION : 0) |
                                                 ((indicate_flags & bit) ? GATT_CLIENT_CONFIG_INDICATION : 0);
-            HIDD_LIB_TRACE("handle %x CCCD is set to %04x",rpt_map[i].handle_cccd, *(uint16_t *) p_attribute->p_data);
+            HIDD_LIB_TRACE2("handle %x CCCD is set to 0x%04x",hidd.cfg->rpt_table[i].handle_cccd, *(uint16_t *) p_attribute->p_data);
         }
         bit <<= 1;
     }
@@ -211,14 +236,20 @@ void hidd_clear_cccd_flags()
 {
     const gatt_db_lookup_table_t * p_attribute;
 
-    HIDD_LIB_TRACE("Clear all CCCD flags");
+    HIDD_LIB_TRACE("Clear all CCCD flags, rpt table size = %d", hidd.cfg->rpt_table_size);
     for (int i = 0; i < hidd.cfg->rpt_table_size; i++)
     {
-        p_attribute = wiced_bt_util_get_attribute(hidd.cfg->gatt_lookup_table, hidd.cfg->rpt_table[i].handle_cccd);
+        HIDD_LIB_TRACE2("Index %d CCCD handle 0x%04x", i, hidd.cfg->rpt_table[i].handle_cccd);
 
-        if( p_attribute )
+        if (hidd.cfg->rpt_table[i].handle_cccd)
         {
-            *(uint16_t *) p_attribute->p_data = 0;
+            p_attribute = hidd_get_attribute(hidd.cfg->rpt_table[i].handle_cccd);
+
+            if( p_attribute )
+            {
+                HIDD_LIB_TRACE2("Index %d CCCD handle 0x%04x cleared", i, hidd.cfg->rpt_table[i].handle_cccd);
+                *(uint16_t *) p_attribute->p_data = 0;
+            }
         }
     }
 }

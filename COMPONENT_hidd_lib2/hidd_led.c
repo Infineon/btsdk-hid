@@ -47,6 +47,11 @@
 #define BLINK_CODE_SPEED 500
 #define ERROR_CODE_BLINK_BREAK      4000
 
+#if LED_TRACE
+ #define APP_LED_TRACE WICED_BT_TRACE
+#else
+ #define APP_LED_TRACE(...)
+#endif
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 static struct {
@@ -80,7 +85,7 @@ static void LED_setState(uint8_t idx, wiced_bool_t newState)
         {
            logic = !logic;   // logic = LED on
         }
-//        WICED_BT_TRACE("\nLED pin %d %d", *led_cfg.platform[idx].gpio, logic);
+        APP_LED_TRACE("\nLED pin %d %d", *led_cfg.platform[idx].gpio, logic);
         wiced_hal_gpio_set_pin_output(*led_cfg.platform[idx].gpio, logic);
         led[idx].curr_state = newState;
     }
@@ -166,7 +171,7 @@ wiced_bool_t hidd_led_is_blinking(uint8_t idx)
  *******************************************************************************/
 void hidd_led_blink_stop(uint8_t idx)
 {
-//    WICED_BT_TRACE("\nstop blink led idx %d", idx);
+    APP_LED_TRACE("\nstop blink led idx %d", idx);
     if (VALID_LED_IDX(idx))
     {
         if (hidd_led_is_blinking(idx))
@@ -232,7 +237,7 @@ void hidd_led_on(uint8_t idx)
  *******************************************************************************/
 void hidd_led_blink(uint8_t idx, uint32_t count, uint32_t how_fast_in_ms)
 {
-//    WICED_BT_TRACE("\nSTART blink led idx %d", idx);
+    APP_LED_TRACE("\nSTART blink led idx %d", idx);
     if (VALID_LED_IDX(idx))
     {
         hidd_led_blink_stop(idx);
@@ -286,6 +291,8 @@ void hidd_led_blink_code(uint8_t idx, uint8_t code)
  *******************************************************************************/
 void hidd_led_init(uint8_t count, const wiced_platform_led_config_t * cfg)
 {
+    APP_LED_TRACE("\n%s count=%d", __FUNCTION__, count);
+
     // if LED is defined in platform
     if (count && cfg && (count <= WICED_PLATFORM_LED_MAX))
     {
@@ -298,6 +305,7 @@ void hidd_led_init(uint8_t count, const wiced_platform_led_config_t * cfg)
             wiced_init_timer( &led[idx].blinking_timer, LED_blink_handler, idx, WICED_MILLI_SECONDS_TIMER );
             if (wiced_hal_mia_is_reset_reason_por())
             {
+                APP_LED_TRACE("\nLED%d: GPIO:%d CFG:%04x default:%d", idx, *cfg[idx].gpio, cfg[idx].config, cfg[idx].default_state);
                 // pin initialization is done in platform.c
 //                wiced_hal_gpio_configure_pin(*cfg[idx].gpio, cfg[idx].config, cfg[idx].default_state);
                 LED_set(idx, LED_OFF); // default to turn LED off

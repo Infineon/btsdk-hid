@@ -44,7 +44,31 @@
 #include "wiced_bt_hidd.h"
 #include "wiced_bt_gatt.h"
 #include "cycfg_gatt_db.h"
+
+#if BTSTACK_VER < 0x03000001
+#include "wiced_bt_gatt_util.h"
+typedef wiced_bt_gatt_write_t wiced_bt_gatt_write_req_t;
+/**
+ * @brief   Get attribute data from the look up table
+ *
+ * @param[in]  gatt_db_lookup_table_t * p_attribute : Attribute look up table
+ * @param[in]  uint16_t handle                      : The handle of the attribute.
+ *
+ * @return A pointer points to the attribute data. It returns NULL if the handle is invalid.
+ */
+const gatt_db_lookup_table_t * hidd_get_attribute(uint16_t handle);
+#define WICED_BT_GATT_ATTRIBUTE_NOT_FOUND WICED_BT_GATT_NOT_FOUND
+#else
 #include "gatt_utils_lib.h"
+#define wiced_bt_gatt_send_notification(id, type, len, ptr) wiced_bt_gatt_server_send_notification(id, type, len, ptr, NULL)
+#endif
+
+#define is_20819Family ((CHIP==20819) || (CHIP==20820))
+#define is_20739Family ((CHIP==20739) || (CHIP==20719) || (CHIP==20721) || (CHIP==30739))
+#define is_20835Family ((CHIP==20835))
+#define is_SDS_capable (is_20835Family || is_20739Family)
+#define is_ePDS_capable is_20819Family
+#define SUPPORT_EPDS (is_ePDS_capable && (SLEEP_ALLOWED>=2))
 
 /*********************************************************************************
  * typedefs
@@ -80,8 +104,9 @@ typedef struct
     uint8_t                     rpt_table_size;     /**< The number of HID Report                   */
     hidd_rpt_t *                rpt_table;          /**< HID Report table                           */
     hidd_rpt_cb_t               rpt_cb;             /**< get_Report/set_report callback function    */
-    hidd_cccd_write_cb_t        cccd_cb;            /**< cccd flag change callback function         */
+    hidd_cccd_write_cb_t        cccd_cb;            /* No longer in use. Kept for backward compatiblity */
     gatt_db_lookup_table_t *    gatt_lookup_table;  /**< GATT attribute lookup table                */
+    uint16_t                    gatt_lookup_table_size;
 
 } hidd_cfg_t;
 
@@ -171,6 +196,7 @@ void hidd_set_conn_id( uint16_t conn_id );
  * @return    none
  */
 void hidd_init(hidd_cfg_t * cfg);
+
 
 #endif // __HIDD_LIB_H_
 
